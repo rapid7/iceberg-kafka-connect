@@ -179,22 +179,31 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
   private void setTableAndTargetFromSourceStruct(Struct source, Struct cdcMetadata) {
     String db;
+    Long txid = null;
+
     if (source.schema().field("schema") != null) {
       // prefer schema if present, e.g. for Postgres
       db = source.getString("schema");
     } else {
       db = source.getString("db");
     }
+
     String table = source.getString("table");
+
+    if (source.schema().field("txId") != null) {
+      txid = source.getInt64("txId");
+    }
 
     cdcMetadata.put(CdcConstants.COL_SOURCE, db + "." + table);
     cdcMetadata.put(CdcConstants.COL_TARGET, target(db, table));
+    cdcMetadata.put(CdcConstants.COL_TXID, txid);
   }
 
   private void setTableAndTargetFromSourceMap(Object source, Map<String, Object> cdcMetadata) {
     Map<String, Object> map = Requirements.requireMap(source, "Debezium transform");
 
     String db;
+    Long txid = null;
     if (map.containsKey("schema")) {
       // prefer schema if present, e.g. for Postgres
       db = map.get("schema").toString();
@@ -203,8 +212,13 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     String table = map.get("table").toString();
 
+    if (map.containsKey("txId")) {
+      txid = Long.valueOf(map.get("txId").toString());
+    }
+
     cdcMetadata.put(CdcConstants.COL_SOURCE, db + "." + table);
     cdcMetadata.put(CdcConstants.COL_TARGET, target(db, table));
+    cdcMetadata.put(CdcConstants.COL_TXID, txid);
   }
 
   private String target(String db, String table) {
@@ -220,7 +234,8 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
             .field(CdcConstants.COL_TS, Timestamp.SCHEMA)
             .field(CdcConstants.COL_OFFSET, Schema.OPTIONAL_INT64_SCHEMA)
             .field(CdcConstants.COL_SOURCE, Schema.STRING_SCHEMA)
-            .field(CdcConstants.COL_TARGET, Schema.STRING_SCHEMA);
+            .field(CdcConstants.COL_TARGET, Schema.STRING_SCHEMA)
+            .field(CdcConstants.COL_TXID, Schema.OPTIONAL_INT64_SCHEMA);
 
     if (keySchema != null) {
       builder.field(CdcConstants.COL_KEY, keySchema);
