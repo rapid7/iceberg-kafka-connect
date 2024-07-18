@@ -27,10 +27,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import org.apache.iceberg.AppendFiles;
@@ -65,6 +62,10 @@ public class Coordinator extends Channel implements AutoCloseable {
   private static final String VTTS_SNAPSHOT_PROP = "kafka.connect.vtts";
   private static final Duration POLL_DURATION = Duration.ofMillis(1000);
 
+    private static final String TXID_VALID_UNTIL_PROP = "txid_valid_until";
+  private final Map<Integer, Long> lastProcessedTxIdPerPartition = new HashMap<>();
+  private final Map<Integer, Long> highestTxIdPerPartition = new HashMap<>();
+
   private final Catalog catalog;
   private final IcebergSinkConfig config;
   private final int totalPartitionCount;
@@ -98,10 +99,12 @@ public class Coordinator extends Channel implements AutoCloseable {
       // send out begin commit
       commitState.startNewCommit();
       LOG.info("Started new commit with commit-id={}", commitState.currentCommitId().toString());
-      Event event =
-          new Event(config.controlGroupId(), new StartCommit(commitState.currentCommitId()));
-      send(event);
-      LOG.info("Sent workers commit trigger with commit-id={}", commitState.currentCommitId().toString());
+      // Iterate over each partition and its last processed txId
+      lastProcessedTxIdPerPartition.forEach((partition, txId) -> {
+        TxIdValidUntilEvent event = new TxIdValidUntilEvent(config.controlGroupId(), new StartCommit(commitState.currentCommitId()), partition, txId);
+        send(event);
+        LOG.info("Sent workers commit trigger for partition {} with commit-id={}", partition, commitState.currentCommitId().toString());
+      });
 
     }
 
@@ -115,6 +118,9 @@ public class Coordinator extends Channel implements AutoCloseable {
   private boolean receive(Envelope envelope) {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
+                TxIdValidUntilEvent dataEvent = (TxIdValidUntilEvent) envelope.event();
+                highestTxIdPerPartition.merge(dataEvent.getPartition(), dataEvent.getTxId(), Math::max);
+                lastProcessedTxIdPerPartition.put(dataEvent.getPartition(), dataEvent.getTxId());
         commitState.addResponse(envelope);
         return true;
       case DATA_COMPLETE:
@@ -139,6 +145,8 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   private void doCommit(boolean partialCommit) {
+        String txidValidUntilStr = Long.toString(calculateTxidValidUntil());
+
     Map<TableIdentifier, List<Envelope>> commitMap = commitState.tableCommitMap();
 
     String offsetsJson = offsetsJson();
@@ -147,11 +155,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     Tasks.foreach(commitMap.entrySet())
         .executeWith(exec)
         .stopOnFailure()
-        .run(
-            entry -> {
-              commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts);
-            });
-
+                .run(entry -> commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts, txidValidUntilStr));
     // we should only get here if all tables committed successfully...
     commitConsumerOffsets();
     commitState.clearResponses();
@@ -179,7 +183,8 @@ public class Coordinator extends Channel implements AutoCloseable {
       TableIdentifier tableIdentifier,
       List<Envelope> envelopeList,
       String offsetsJson,
-      OffsetDateTime vtts) {
+            OffsetDateTime vtts,
+            String txidValidUntilStr) {
     Table table;
     try {
       table = catalog.loadTable(tableIdentifier);
@@ -237,6 +242,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
+                        appendOp.set(TXID_VALID_UNTIL_PROP, txidValidUntilStr);
           }
 
           appendOp.commit();
@@ -251,6 +257,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (vtts != null) {
           deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
         }
+                deltaOp.set(TXID_VALID_UNTIL_PROP, txidValidUntilStr);
         dataFiles.forEach(deltaOp::addRows);
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
@@ -275,6 +282,22 @@ public class Coordinator extends Channel implements AutoCloseable {
           vtts);
     }
   }
+
+    // Calculate the highest txid_valid_until value across all partitions
+    private long calculateTxidValidUntil() {
+        // If the map is empty, return 0 as no transactions are guaranteed to be completed
+        if (highestTxIdPerPartition.isEmpty()) {
+            return 0L;
+        }
+
+        // Find the minimum value in the map, as it represents the highest transaction ID
+        // that is guaranteed to be completed across all partitions
+        long minValue = Collections.min(highestTxIdPerPartition.values());
+
+        // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID
+        // If minValue is 1, then there are no completed transactions, so return 0
+        return minValue > 1 ? minValue - 1 : 0;
+    }
 
   private Snapshot latestSnapshot(Table table, String branch) {
     if (branch == null) {
