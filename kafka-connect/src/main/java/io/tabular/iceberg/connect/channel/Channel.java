@@ -20,6 +20,8 @@ package io.tabular.iceberg.connect.channel;
 
 import static java.util.stream.Collectors.toList;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
 import java.time.Duration;
@@ -56,6 +58,7 @@ public abstract class Channel {
   private final Admin admin;
   private final Map<Integer, Long> controlTopicOffsets = Maps.newHashMap();
   private final String producerId;
+  private final Map<Integer, Long> highestTxIdPerPartition = Maps.newHashMap();
 
   private final EventDecoder eventDecoder;
 
@@ -124,6 +127,12 @@ public abstract class Channel {
     while (!records.isEmpty()) {
       records.forEach(
           record -> {
+            Long txId = extractTxId(record.value());
+            if (txId != null) {
+              highestTxIdPerPartition.merge(record.partition(), txId, Math::max);
+            } else {
+              LOG.warn("txId is null for record: {}", record.key());
+            }
             // the consumer stores the offsets that corresponds to the next record to consume,
             // so increment the record offset by one
             controlTopicOffsets.put(record.partition(), record.offset() + 1);
@@ -146,6 +155,10 @@ public abstract class Channel {
     return controlTopicOffsets;
   }
 
+    protected Map<Integer, Long> highestTxIdPerPartition() {
+        return highestTxIdPerPartition;
+    }
+
   protected void commitConsumerOffsets() {
     Map<TopicPartition, OffsetAndMetadata> offsetsToCommit = Maps.newHashMap();
     controlTopicOffsets()
@@ -164,5 +177,23 @@ public abstract class Channel {
     producer.close();
     consumer.close();
     admin.close();
+  }
+
+  public Long extractTxId(byte[] data) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    try {
+      String jsonPayload = objectMapper.writeValueAsString(data);
+      JsonNode rootNode = objectMapper.readTree(jsonPayload);
+      JsonNode cdcNode = rootNode.path("_cdc");
+      if (!cdcNode.isMissingNode()) {
+        JsonNode txIdNode = cdcNode.path("txId");
+        if (!txIdNode.isMissingNode()) {
+          return txIdNode.asLong();
+        }
+      }
+    } catch (Exception e) {
+      LOG.warn("Failed to extract txId from payload", e);
+    }
+    return null;
   }
 }

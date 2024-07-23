@@ -46,13 +46,11 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
 import org.apache.iceberg.connect.events.Event;
-import org.apache.iceberg.connect.events.Payload;
 import org.apache.iceberg.connect.events.StartCommit;
 import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
-import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.Tasks;
 import org.apache.iceberg.util.ThreadPools;
 import org.apache.kafka.clients.admin.MemberDescription;
@@ -67,10 +65,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   private static final String COMMIT_ID_SNAPSHOT_PROP = "kafka.connect.commit-id";
   private static final String VTTS_SNAPSHOT_PROP = "kafka.connect.vtts";
   private static final Duration POLL_DURATION = Duration.ofMillis(1000);
-
-    private static final String TXID_VALID_UNTIL_PROP = "txid_valid_until";
-  private final Map<Integer, Long> lastProcessedTxIdPerPartition = Maps.newHashMap();
-  private final Map<Integer, Long> highestTxIdPerPartition = Maps.newHashMap();
+  private static final String TXID_VALID_UNTIL_PROP = "txid_valid_until";
 
   private final Catalog catalog;
   private final IcebergSinkConfig config;
@@ -121,10 +116,6 @@ public class Coordinator extends Channel implements AutoCloseable {
   private boolean receive(Envelope envelope) {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
-        // Get the transaction id (txId) placed in the CDC metadata
-        Long txId = extractTxId(envelope);
-        highestTxIdPerPartition.merge(envelope.partition(), txId , Math::max);
-        lastProcessedTxIdPerPartition.put(envelope.partition(),txId);
         commitState.addResponse(envelope);
         return true;
       case DATA_COMPLETE:
@@ -246,7 +237,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
-                        appendOp.set(TXID_VALID_UNTIL_PROP, txidValidUntilStr);
+              appendOp.set(TXID_VALID_UNTIL_PROP, txidValidUntilStr);
           }
 
           appendOp.commit();
@@ -261,7 +252,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (vtts != null) {
           deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
         }
-                deltaOp.set(TXID_VALID_UNTIL_PROP, txidValidUntilStr);
+        deltaOp.set(TXID_VALID_UNTIL_PROP, txidValidUntilStr);
         dataFiles.forEach(deltaOp::addRows);
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
@@ -287,27 +278,19 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
   }
 
-    // Calculate the highest txid_valid_until value across all partitions
     private long calculateTxidValidUntil() {
-        // If the map is empty, return 0 as no transactions are guaranteed to be completed
-        if (highestTxIdPerPartition.isEmpty()) {
+        if (highestTxIdPerPartition().isEmpty()) {
             return 0L;
         }
 
         // Find the minimum value in the map, as it represents the highest transaction ID
         // that is guaranteed to be completed across all partitions
-        long minValue = Collections.min(highestTxIdPerPartition.values());
+        long minValue = Collections.min(highestTxIdPerPartition().values());
 
         // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID
         // If minValue is 1, then there are no completed transactions, so return 0
         return minValue > 1 ? minValue - 1 : 0;
     }
-
-  public Long extractTxId(Envelope envelope) {
-    Payload payload = envelope.event().payload();
-    // TODO figure out how to parse the txIc from the payload
-    return 0L;
-  }
 
   private Snapshot latestSnapshot(Table table, String branch) {
     if (branch == null) {
