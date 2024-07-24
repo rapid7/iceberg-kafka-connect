@@ -41,6 +41,7 @@ public class WorkerTest {
   private static final String SRC_TOPIC_NAME = "src-topic";
   private static final String TABLE_NAME = "db.tbl";
   private static final String FIELD_NAME = "fld";
+  private static final String TRANSACTION_FIELD_NAME = "_cdc_txid";
 
   @Test
   public void testStaticRoute() {
@@ -59,6 +60,26 @@ public class WorkerTest {
     when(config.catalogName()).thenReturn("catalog");
 
     Map<String, Object> value = ImmutableMap.of(FIELD_NAME, TABLE_NAME);
+    workerTest(config, value);
+  }
+
+  @Test
+  public void testStaticRouteTransactionEvent() {
+    IcebergSinkConfig config = mock(IcebergSinkConfig.class);
+    when(config.tables()).thenReturn(ImmutableList.of(TABLE_NAME));
+    when(config.catalogName()).thenReturn("catalog");
+    Map<String, Object> value = ImmutableMap.of(TRANSACTION_FIELD_NAME, 743);
+    workerTest(config, value);
+  }
+
+  @Test
+  public void testDynamicRouteTransactionEvent() {
+    IcebergSinkConfig config = mock(IcebergSinkConfig.class);
+    when(config.dynamicTablesEnabled()).thenReturn(true);
+    when(config.tablesRouteField()).thenReturn(FIELD_NAME);
+    when(config.catalogName()).thenReturn("catalog");
+
+    Map<String, Object> value = ImmutableMap.of(TRANSACTION_FIELD_NAME, TABLE_NAME);
     workerTest(config, value);
   }
 
