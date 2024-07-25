@@ -108,6 +108,7 @@ public class Coordinator extends Channel implements AutoCloseable {
           new Event(config.controlGroupId(), new StartCommit(commitState.currentCommitId()));
       send(event);
       LOG.info("Sent workers commit trigger with commit-id={}", commitState.currentCommitId().toString());
+
     }
 
     consumeAvailable(POLL_DURATION, this::receive);
@@ -151,7 +152,6 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   private void doCommit(boolean partialCommit) {
-
     Map<TableIdentifier, List<Envelope>> commitMap = commitState.tableCommitMap();
 
     String offsetsJson = offsetsJson();
@@ -160,7 +160,11 @@ public class Coordinator extends Channel implements AutoCloseable {
     Tasks.foreach(commitMap.entrySet())
         .executeWith(exec)
         .stopOnFailure()
-                .run(entry -> commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts));
+        .run(
+            entry -> {
+              commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts);
+            });
+
     // we should only get here if all tables committed successfully...
     commitConsumerOffsets();
     commitState.clearResponses();
