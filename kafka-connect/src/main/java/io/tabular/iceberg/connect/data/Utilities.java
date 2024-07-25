@@ -303,5 +303,9 @@ public class Utilities {
     return minValue > 1 ? minValue - 1 : 0;
   }
 
+  public static Long getMaxTxId(Map<?, Long> highestTxIdPerPartition) {
+    return highestTxIdPerPartition.values().stream().max(Long::compareTo).orElse(0L);
+  }
+
   private Utilities() {}
 }

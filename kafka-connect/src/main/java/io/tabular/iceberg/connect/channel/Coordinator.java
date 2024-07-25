@@ -69,6 +69,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   private static final String VTTS_SNAPSHOT_PROP = "kafka.connect.vtts";
   private static final Duration POLL_DURATION = Duration.ofMillis(1000);
   private static final String TXID_VALID_UNTIL_PROP = "txid_valid_until";
+  private static final String TXID_MAX_PROP = "txid_max";
 
   private final Catalog catalog;
   private final IcebergSinkConfig config;
@@ -126,7 +127,9 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (envelope.event().payload() instanceof TransactionEvent) {
           TransactionEvent event = (TransactionEvent) envelope.event();
           Map<TopicPartition, Long> txIdPerPartition = event.txIdPerPartition();
-          txIdPerPartition.forEach((k, v) -> highestTxIdPerPartition().put(k.partition(), Math.max(v, txIdPerPartition.get(k))));
+          txIdPerPartition.forEach((k, v) -> highestTxIdPerPartition().put(k.partition(),
+                  Math.max(v, Optional.ofNullable(highestTxIdPerPartition().get(k.partition()))
+                          .orElse(0L))));
         }
         if (commitState.isCommitReady(totalPartitionCount)) {
           commit(false);
@@ -223,7 +226,8 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      long txIdValidUntil = Utilities.calculateTxIdValidUntil(highestTxIdPerPartition());
+      String txIdValidUntil = Long.toString(Utilities.calculateTxIdValidUntil(highestTxIdPerPartition()));
+      String maxTxId = Long.toString(Utilities.getMaxTxId(highestTxIdPerPartition()));
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
@@ -244,7 +248,8 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
-              appendOp.set(TXID_VALID_UNTIL_PROP, Long.toString(txIdValidUntil));
+            appendOp.set(TXID_VALID_UNTIL_PROP, txIdValidUntil);
+            appendOp.set(TXID_MAX_PROP, maxTxId);
           }
 
           appendOp.commit();
@@ -259,7 +264,8 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (vtts != null) {
           deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
         }
-        deltaOp.set(TXID_VALID_UNTIL_PROP, Long.toString(txIdValidUntil));
+        deltaOp.set(TXID_VALID_UNTIL_PROP, txIdValidUntil);
+        deltaOp.set(TXID_MAX_PROP, maxTxId);
         dataFiles.forEach(deltaOp::addRows);
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
