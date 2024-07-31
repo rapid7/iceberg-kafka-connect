@@ -563,7 +563,7 @@ class CommitterImplTest {
         () ->
             new Committable(
                 ImmutableMap.of(sourceTp1, new Offset(100L, 200L)),
-                ImmutableMap.of(),
+                ImmutableMap.of(sourceTp1, 999L),
                 ImmutableList.of(
                     new WriterResult(TABLE_1_IDENTIFIER, dataFiles, deleteFiles, partitionStruct)));
 
@@ -601,7 +601,7 @@ class CommitterImplTest {
           ImmutableMap.of(
               sourceTp0, Pair.of(null, null),
               sourceTp1, Pair.of(100L, offsetDateTime(200L))),
-              ImmutableMap.of());
+              ImmutableMap.of(sourceTp1, 999L));
 
       assertThat(producer.consumerGroupOffsetsHistory()).hasSize(2);
       Map<TopicPartition, OffsetAndMetadata> expectedConsumerOffset =

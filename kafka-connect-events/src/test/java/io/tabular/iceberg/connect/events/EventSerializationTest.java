@@ -95,6 +95,10 @@ public class EventSerializationTest {
     assertThat(payload.commitId()).isEqualTo(commitId);
     assertThat(payload.assignments()).hasSize(2);
     assertThat(payload.assignments()).allMatch(tp -> tp.topic().equals("topic"));
+    assertThat(payload.txIds()).hasSize(2);
+    assertThat(payload.txIds()).allMatch(tp -> tp.topic().equals("topic"));
+    assertThat(payload.txIds().get(0).txId()).isEqualTo(1L);
+    assertThat(payload.txIds().get(1).txId()).isNull();
   }
 
   @Test
