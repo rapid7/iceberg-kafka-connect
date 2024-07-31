@@ -85,11 +85,11 @@ public class WorkerTest {
 
   private void workerTest(IcebergSinkConfig config, Map<String, Object> value) {
     WriterResult writeResult =
-        new WriterResult(
-            TableIdentifier.parse(TABLE_NAME),
-            ImmutableList.of(EventTestUtil.createDataFile()),
-            ImmutableList.of(),
-            StructType.of());
+            new WriterResult(
+                    TableIdentifier.parse(TABLE_NAME),
+                    ImmutableList.of(EventTestUtil.createDataFile()),
+                    ImmutableList.of(),
+                    StructType.of());
     IcebergWriter writer = mock(IcebergWriter.class);
     when(writer.complete()).thenReturn(ImmutableList.of(writeResult));
 
@@ -108,9 +108,9 @@ public class WorkerTest {
     // offset should be one more than the record offset
     assertThat(
             committable
-                .offsetsByTopicPartition()
-                .get(committable.offsetsByTopicPartition().keySet().iterator().next())
-                .offset())
-        .isEqualTo(1L);
+                    .offsetsByTopicPartition()
+                    .get(committable.offsetsByTopicPartition().keySet().iterator().next())
+                    .offset())
+            .isEqualTo(1L);
   }
 }

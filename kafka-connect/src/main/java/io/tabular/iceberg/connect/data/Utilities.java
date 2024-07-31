@@ -138,7 +138,7 @@ public class Utilities {
     if (txId instanceof Number) {
       return ((Number) txId).longValue();
     } else {
-      return -1L;
+      return null;
     }
   }
 
@@ -289,13 +289,13 @@ public class Utilities {
     }
   }
 
-  public static Long calculateTxIdValidUntil(Map<?, Long> highestTxIdPerPartition) {
+  public static Long calculateTxIdValidThrough(Map<?, Long> highestTxIdPerPartition) {
     if (highestTxIdPerPartition.isEmpty()) {
       return 0L;
     }
 
     // Find the minimum value in the map, as it represents the highest transaction ID
-    // that is guaranteed to be completed across all partitions
+    // that is common across all partitions
     long minValue = Collections.min(highestTxIdPerPartition.values());
 
     // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID

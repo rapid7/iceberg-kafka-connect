@@ -31,9 +31,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
-import io.tabular.iceberg.connect.data.TransactionEvent;
+import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.connect.events.DataComplete;
 import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
@@ -178,11 +178,14 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                 })
             .collect(toList());
 
+    List<TopicPartitionTransaction> txIds = committable.txIdsByTopicPartition().entrySet().stream()
+            .map(entry -> new TopicPartitionTransaction(entry.getKey().topic(), entry.getKey().partition(), entry.getValue()))
+            .collect(toList());
+
     Event commitReady =
-        new TransactionEvent(
+        new Event(
             config.controlGroupId(),
-            new DataComplete(commitId, assignments),
-                committable.txIdsByTopicPartition());
+            new TransactionDataComplete(commitId, assignments, txIds));
     events.add(commitReady);
 
     Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();
