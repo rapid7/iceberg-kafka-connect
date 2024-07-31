@@ -127,7 +127,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         commitState.addReady(envelope);
         if (envelope.event().payload() instanceof TransactionDataComplete) {
           TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
-          List<TopicPartitionTransaction> txIds = payload.txs();
+          List<TopicPartitionTransaction> txIds = payload.txIds();
             txIds.forEach(
                 txId -> highestTxIdPerPartition().put(txId.partition(),
                         Math.max(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L),  txId.txId())));

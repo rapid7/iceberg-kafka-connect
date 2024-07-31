@@ -8,7 +8,7 @@ public class TopicPartitionTxId implements Element {
 
     private String topic;
     private Integer partition;
-    private Long tx;
+    private Long txId;
     private final Schema avroSchema;
 
     public static final Schema AVRO_SCHEMA =
@@ -25,7 +25,7 @@ public class TopicPartitionTxId implements Element {
                     .type()
                     .intType()
                     .noDefault()
-                    .name("tx")
+                    .name("tx_id")
                     .prop(FIELD_ID_PROP, DUMMY_FIELD_ID)
                     .type()
                     .nullable()
@@ -38,10 +38,10 @@ public class TopicPartitionTxId implements Element {
         this.avroSchema = avroSchema;
     }
 
-    public TopicPartitionTxId(String topic, int partition, Long tx) {
+    public TopicPartitionTxId(String topic, int partition, Long txId) {
         this.topic = topic;
         this.partition = partition;
-        this.tx = tx;
+        this.txId = txId;
         this.avroSchema = AVRO_SCHEMA;
     }
 
@@ -53,8 +53,8 @@ public class TopicPartitionTxId implements Element {
         return partition;
     }
 
-    public Long tx() {
-        return tx;
+    public Long txId() {
+        return txId;
     }
 
     @Override
@@ -72,7 +72,7 @@ public class TopicPartitionTxId implements Element {
                 this.partition = (Integer) v;
                 return;
             case 2:
-                this.tx = (Long) v;
+                this.txId = (Long) v;
                 return;
             default:
                 // ignore the object, it must be from a newer version of the format
@@ -87,7 +87,7 @@ public class TopicPartitionTxId implements Element {
             case 1:
                 return partition;
             case 2:
-                return tx;
+                return txId;
             default:
                 throw new UnsupportedOperationException("Unknown field ordinal: " + i);
         }

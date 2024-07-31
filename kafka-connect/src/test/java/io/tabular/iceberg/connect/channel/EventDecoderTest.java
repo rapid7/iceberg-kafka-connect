@@ -219,13 +219,13 @@ public class EventDecoderTest {
     assertThat(payload.assignments().get(1).offset()).isNull();
     assertThat(payload.assignments().get(1).timestamp()).isNull();
 
-    assertThat(payload.txs().get(0).topic()).isEqualTo("topic");
-    assertThat(payload.txs().get(0).partition()).isEqualTo(1);
-    assertThat(payload.txs().get(0).txId()).isEqualTo(1L);
+    assertThat(payload.txIds().get(0).topic()).isEqualTo("topic");
+    assertThat(payload.txIds().get(0).partition()).isEqualTo(1);
+    assertThat(payload.txIds().get(0).txId()).isEqualTo(1L);
 
-    assertThat(payload.txs().get(1).topic()).isEqualTo("topic");
-    assertThat(payload.txs().get(1).partition()).isEqualTo(2);
-    assertThat(payload.txs().get(1).txId()).isNull();
+    assertThat(payload.txIds().get(1).topic()).isEqualTo("topic");
+    assertThat(payload.txIds().get(1).partition()).isEqualTo(2);
+    assertThat(payload.txIds().get(1).txId()).isNull();
   }
 
   @Test

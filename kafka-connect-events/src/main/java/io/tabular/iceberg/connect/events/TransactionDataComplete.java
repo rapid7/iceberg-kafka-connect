@@ -18,7 +18,7 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
 
     private UUID commitId;
     private List<TopicPartitionOffset> assignments;
-    private List<TopicPartitionTransaction> txs;
+    private List<TopicPartitionTransaction> txIds;
     private final Schema avroSchema;
 
     static final int COMMIT_ID = 10_100;
@@ -36,7 +36,7 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
                             Types.ListType.ofRequired(ASSIGNMENTS_ELEMENT, TopicPartitionOffset.ICEBERG_SCHEMA)),
                     Types.NestedField.optional(
                             TX_IDS,
-                            "txs",
+                            "tx_ids",
                             Types.ListType.ofRequired(TX_IDS_ELEMENT, TopicPartitionTransaction.ICEBERG_SCHEMA)));
 
     private static final Schema AVRO_SCHEMA = AvroSchemaUtil.convert(ICEBERG_SCHEMA,
@@ -46,10 +46,10 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         this.avroSchema = avroSchema;
     }
 
-    public TransactionDataComplete(UUID commitId, List<TopicPartitionOffset> assignments, List<TopicPartitionTransaction> txs) {
+    public TransactionDataComplete(UUID commitId, List<TopicPartitionOffset> assignments, List<TopicPartitionTransaction> txIds) {
         this.commitId = commitId;
         this.assignments = assignments;
-        this.txs = txs;
+        this.txIds = txIds;
         this.avroSchema = AVRO_SCHEMA;
     }
 
@@ -61,8 +61,8 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         return assignments;
     }
 
-    public List<TopicPartitionTransaction> txs() {
-        return txs;
+    public List<TopicPartitionTransaction> txIds() {
+        return txIds;
     }
 
     @Override
@@ -94,7 +94,7 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
             case TX_IDS:
                 if (v instanceof List) {
                     List<GenericData.Record> records = (List<GenericData.Record>) v;
-                    this.txs = records.stream()
+                    this.txIds = records.stream()
                             .map(TransactionDataComplete::toTopicPartitionTransaction)
                             .collect(Collectors.toList());
                 }
@@ -112,7 +112,7 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
             case ASSIGNMENTS:
                 return assignments;
             case TX_IDS:
-                return txs;
+                return txIds;
             default:
                 throw new UnsupportedOperationException("Unknown field ordinal: " + i);
         }
@@ -127,7 +127,7 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
     }
 
     public static TopicPartitionTransaction toTopicPartitionTransaction(GenericData.Record record) {
-        Long txId = (long) record.get("tx");
+        Long txId = (long) record.get("txId");
         String topic = record.get("topic").toString();
         int partition = (int) record.get("partition");
         return new TopicPartitionTransaction(topic, partition, txId);

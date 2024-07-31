@@ -32,7 +32,6 @@ import java.util.UUID;
 
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.connect.events.DataComplete;
 import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.TopicPartitionOffset;
 import org.slf4j.Logger;

@@ -283,7 +283,7 @@ class CommitterImplTest {
                 .collect(Collectors.toList()));
 
     assertThat(
-            commitReadyPayload.txs().stream()
+            commitReadyPayload.txIds().stream()
                 .map(
                     x ->
                         Pair.of(

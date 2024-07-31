@@ -30,7 +30,7 @@ public class TopicPartitionTransaction implements IndexedRecord {
 
     private String topic;
     private Integer partition;
-    private Long tx;
+    private Long txId;
     private final Schema avroSchema;
 
     static final int TOPIC = 10_800;
@@ -41,7 +41,7 @@ public class TopicPartitionTransaction implements IndexedRecord {
             Types.StructType.of(
                     Types.NestedField.required(TOPIC, "topic", Types.StringType.get()),
                     Types.NestedField.required(PARTITION, "partition", Types.IntegerType.get()),
-                    Types.NestedField.optional(TX_ID, "tx", Types.LongType.get()));
+                    Types.NestedField.optional(TX_ID, "txId", Types.LongType.get()));
 
     private static final Schema AVRO_SCHEMA = AvroSchemaUtil.convert(ICEBERG_SCHEMA, TopicPartitionTransaction.class.getName());
 
@@ -49,10 +49,10 @@ public class TopicPartitionTransaction implements IndexedRecord {
         this.avroSchema = avroSchema;
     }
 
-    public TopicPartitionTransaction(String topic, Integer partition, Long tx) {
+    public TopicPartitionTransaction(String topic, Integer partition, Long txId) {
         this.topic = topic;
         this.partition = partition;
-        this.tx = tx;
+        this.txId = txId;
         this.avroSchema = AVRO_SCHEMA;
     }
 
@@ -65,7 +65,7 @@ public class TopicPartitionTransaction implements IndexedRecord {
     }
 
     public Long txId() {
-        return tx;
+        return txId;
     }
 
     @Override
@@ -83,7 +83,7 @@ public class TopicPartitionTransaction implements IndexedRecord {
                 this.partition = (Integer) v;
                 break;
             case TX_ID:
-                this.tx = (Long) v;
+                this.txId = (Long) v;
                 break;
             default:
                 throw new IllegalArgumentException("Unknown field index: " + i);
@@ -98,7 +98,7 @@ public class TopicPartitionTransaction implements IndexedRecord {
             case PARTITION:
                 return partition;
             case TX_ID:
-                return tx;
+                return txId;
             default:
                 throw new IllegalArgumentException("Unknown field index: " + i);
         }

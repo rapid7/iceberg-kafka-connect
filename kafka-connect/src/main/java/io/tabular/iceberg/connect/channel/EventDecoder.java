@@ -117,7 +117,7 @@ public class EventDecoder {
       List<TopicPartitionTransaction> convertedTxIds =
           legacyTPT.stream()
               .map(
-                  t -> new TopicPartitionTransaction(t.topic(), t.partition(), t.tx()))
+                  t -> new TopicPartitionTransaction(t.topic(), t.partition(), t.txId()))
               .collect(Collectors.toList());
       return new TransactionDataComplete(pay.commitId(), converted, convertedTxIds);
     } else if (payload instanceof CommitTablePayload) {
