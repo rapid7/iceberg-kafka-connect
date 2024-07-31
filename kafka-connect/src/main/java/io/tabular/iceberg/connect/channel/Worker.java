@@ -99,9 +99,12 @@ class Worker implements Writer, AutoCloseable {
         new TopicPartition(record.topic(), record.kafkaPartition()),
         new Offset(record.kafkaOffset() + 1, record.timestamp()));
 
-    sourceTxIds.put(
-        new TopicPartition(record.topic(), record.kafkaPartition()),
-        Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID));
+    Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
+    if (txId != null) {
+      sourceTxIds.put(
+          new TopicPartition(record.topic(), record.kafkaPartition()),
+          txId);
+    }
 
     if (config.dynamicTablesEnabled()) {
       routeRecordDynamically(record);

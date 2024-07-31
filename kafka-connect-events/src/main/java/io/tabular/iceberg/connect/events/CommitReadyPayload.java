@@ -27,7 +27,7 @@ public class CommitReadyPayload implements Payload {
 
   private UUID commitId;
   private List<TopicPartitionOffset> assignments;
-  private List<TopicPartitionTxId> txs;
+  private List<TopicPartitionTxId> txIds;
   private final Schema avroSchema;
 
   private static final Schema AVRO_SCHEMA =
@@ -45,7 +45,7 @@ public class CommitReadyPayload implements Payload {
           .array()
           .items(TopicPartitionOffset.AVRO_SCHEMA)
           .noDefault()
-          .name("txs")
+          .name("txIds")
           .prop(FIELD_ID_PROP, DUMMY_FIELD_ID)
           .type()
           .nullable()
@@ -59,10 +59,10 @@ public class CommitReadyPayload implements Payload {
     this.avroSchema = avroSchema;
   }
 
-  public CommitReadyPayload(UUID commitId, List<TopicPartitionOffset> assignments, List<TopicPartitionTxId> txs) {
+  public CommitReadyPayload(UUID commitId, List<TopicPartitionOffset> assignments, List<TopicPartitionTxId> txIds) {
     this.commitId = commitId;
     this.assignments = assignments;
-    this.txs = txs;
+    this.txIds = txIds;
     this.avroSchema = AVRO_SCHEMA;
   }
 
@@ -74,8 +74,8 @@ public class CommitReadyPayload implements Payload {
     return assignments;
   }
 
-    public List<TopicPartitionTxId> txs() {
-        return txs;
+    public List<TopicPartitionTxId> txIds() {
+        return txIds;
     }
 
   @Override
@@ -94,7 +94,7 @@ public class CommitReadyPayload implements Payload {
         this.assignments = (List<TopicPartitionOffset>) v;
         return;
       case 2:
-        this.txs = (List<TopicPartitionTxId>) v;
+        this.txIds = (List<TopicPartitionTxId>) v;
         return;
       default:
         // ignore the object, it must be from a newer version of the format
@@ -109,7 +109,7 @@ public class CommitReadyPayload implements Payload {
       case 1:
         return assignments;
       case 2:
-        return txs;
+        return txIds;
       default:
         throw new UnsupportedOperationException("Unknown field ordinal: " + i);
     }

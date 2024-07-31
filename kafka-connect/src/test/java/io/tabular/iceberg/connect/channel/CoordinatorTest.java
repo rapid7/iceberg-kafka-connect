@@ -116,7 +116,7 @@ public class CoordinatorTest extends ChannelTestBase {
             ImmutableList.of(EventTestUtil.createDataFile()),
             ImmutableList.of(EventTestUtil.createDeleteFile()),
             ts,
-                transactionsProcessed);
+            transactionsProcessed);
 
     assertThat(producer.history()).hasSize(3);
     assertThat(consumer.committed(ImmutableSet.of(CTL_TOPIC_PARTITION)))
@@ -318,6 +318,8 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals("{\"0\":3}", summary.get(OFFSETS_SNAPSHOT_PROP));
     Assertions.assertEquals(
             Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
+    Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
+    Assertions.assertEquals(102L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
   }
 
   /**
@@ -423,7 +425,9 @@ public class CoordinatorTest extends ChannelTestBase {
                                   OffsetDateTime.ofInstant(
                                       Instant.ofEpochMilli(100L), ZoneOffset.UTC))),
                               ImmutableList.of(
-                                  new TopicPartitionTransaction(SRC_TOPIC_NAME, 0, 100L)))))));
+                                  new TopicPartitionTransaction(SRC_TOPIC_NAME, 0, 100L),
+                                  new TopicPartitionTransaction(SRC_TOPIC_NAME, 1, 110L),
+                                      new TopicPartitionTransaction(SRC_TOPIC_NAME, 2, 102L)))))));
       currentControlTopicOffset += 1;
     }
 
@@ -464,6 +468,13 @@ public class CoordinatorTest extends ChannelTestBase {
         "100",
         secondSnapshot.summary().get(VTTS_SNAPSHOT_PROP),
         "Only the most recent snapshot should include vtts in it's summary");
+    Assertions.assertEquals(
+            99L,
+            Long.valueOf(secondSnapshot.summary().get(TX_ID_VALID_THROUGH_PROP)),
+            "The lowest txId processed by all workers -1 should be the txId valid through");
+    Assertions.assertEquals(110L,
+            Long.valueOf(secondSnapshot.summary().get(MAX_TX_ID__PROP)),
+            "Max txId processed by all workers should be the max txId");
   }
 
   private void assertCommitTable(int idx, UUID commitId, OffsetDateTime ts) {

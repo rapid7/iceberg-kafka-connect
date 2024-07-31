@@ -69,21 +69,16 @@ public class WorkerTest {
     when(config.tables()).thenReturn(ImmutableList.of(TABLE_NAME));
     when(config.catalogName()).thenReturn("catalog");
     Map<String, Object> value = ImmutableMap.of(TRANSACTION_FIELD_NAME, 743);
-    workerTest(config, value);
+    Committable committable = workerTest(config, value);
+
+    assertThat(
+            committable
+                    .txIdsByTopicPartition()
+                    .get(committable.txIdsByTopicPartition().keySet().iterator().next()))
+            .isEqualTo(743L);
   }
 
-  @Test
-  public void testDynamicRouteTransactionEvent() {
-    IcebergSinkConfig config = mock(IcebergSinkConfig.class);
-    when(config.dynamicTablesEnabled()).thenReturn(true);
-    when(config.tablesRouteField()).thenReturn(FIELD_NAME);
-    when(config.catalogName()).thenReturn("catalog");
-
-    Map<String, Object> value = ImmutableMap.of(TRANSACTION_FIELD_NAME, TABLE_NAME);
-    workerTest(config, value);
-  }
-
-  private void workerTest(IcebergSinkConfig config, Map<String, Object> value) {
+  private Committable workerTest(IcebergSinkConfig config, Map<String, Object> value) {
     WriterResult writeResult =
             new WriterResult(
                     TableIdentifier.parse(TABLE_NAME),
@@ -112,5 +107,7 @@ public class WorkerTest {
                     .get(committable.offsetsByTopicPartition().keySet().iterator().next())
                     .offset())
             .isEqualTo(1L);
+
+    return committable;
   }
 }

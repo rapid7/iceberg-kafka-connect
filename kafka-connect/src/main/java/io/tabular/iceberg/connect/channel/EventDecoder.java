@@ -113,7 +113,7 @@ public class EventDecoder {
                               : OffsetDateTime.ofInstant(
                                   Instant.ofEpochMilli(t.timestamp()), ZoneOffset.UTC)))
               .collect(Collectors.toList());
-      List<TopicPartitionTxId> legacyTPT = pay.txs();
+      List<TopicPartitionTxId> legacyTPT = pay.txIds();
       List<TopicPartitionTransaction> convertedTxIds =
           legacyTPT.stream()
               .map(
