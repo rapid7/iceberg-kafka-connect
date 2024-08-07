@@ -68,8 +68,8 @@ public class Coordinator extends Channel implements AutoCloseable {
   private static final String COMMIT_ID_SNAPSHOT_PROP = "kafka.connect.commit-id";
   private static final String VTTS_SNAPSHOT_PROP = "kafka.connect.vtts";
   private static final Duration POLL_DURATION = Duration.ofMillis(1000);
-  private static final String TXID_VALID_THROUGH_PROP = "txid_valid_through";
-  private static final String TXID_MAX_PROP = "txid_max";
+  private static final String TXID_VALID_THROUGH_PROP = "txid-valid-through";
+  private static final String TXID_MAX_PROP = "txid-max";
 
   private final Catalog catalog;
   private final IcebergSinkConfig config;
