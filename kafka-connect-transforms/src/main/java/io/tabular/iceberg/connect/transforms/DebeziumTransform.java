@@ -110,6 +110,10 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
+    if (value.getStruct("ts_us") != null) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, new java.util.Date(value.getInt64("ts_us")));
+    }
+
     return record.newRecord(
         record.topic(),
         record.kafkaPartition(),
@@ -154,6 +158,10 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     // create the new value
     Map<String, Object> newValue = Maps.newHashMap((Map<String, Object>) payload);
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
+
+    if (value.containsKey("ts_us")) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, value.get("ts_us"));
+    }
 
     return record.newRecord(
         record.topic(),
