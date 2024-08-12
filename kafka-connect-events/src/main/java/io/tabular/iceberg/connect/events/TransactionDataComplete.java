@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import static org.apache.iceberg.connect.events.PayloadType.DATA_COMPLETE;
 
 public class TransactionDataComplete implements org.apache.iceberg.connect.events.Payload {
 
@@ -90,7 +89,7 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
 
     @Override
     public PayloadType type() {
-        return DATA_COMPLETE;
+        return org.apache.iceberg.connect.events.PayloadType.DATA_COMPLETE;
     }
 
     @Override
