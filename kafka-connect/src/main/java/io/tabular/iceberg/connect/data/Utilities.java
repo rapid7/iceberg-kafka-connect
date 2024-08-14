@@ -122,6 +122,9 @@ public class Utilities {
   }
 
   public static Object extractFromRecordValue(Object recordValue, String fieldName) {
+    if (recordValue == null) {
+      return null;
+    }
     String[] fields = fieldName.split("\\.");
     if (recordValue instanceof Struct) {
       return getValueFromStruct((Struct) recordValue, fields, 0);
@@ -135,6 +138,7 @@ public class Utilities {
 
   public static Long extractTxIdFromRecordValue(Object recordValue, String fieldName) {
     Object txId = extractFromRecordValue(recordValue, fieldName);
+
     if (txId instanceof Number) {
       return ((Number) txId).longValue();
     } else {
