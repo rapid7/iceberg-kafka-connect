@@ -24,6 +24,8 @@ import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
 import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES;
 import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES_DEFAULT;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -65,6 +67,7 @@ public class Utilities {
   private static final Logger LOG = LoggerFactory.getLogger(Utilities.class.getName());
   private static final List<String> HADOOP_CONF_FILES =
       ImmutableList.of("core-site.xml", "hdfs-site.xml", "hive-site.xml");
+  private static final ObjectMapper objectMapper = new ObjectMapper();
 
   public static Catalog loadCatalog(IcebergSinkConfig config) {
     return CatalogUtil.buildIcebergCatalog(
@@ -141,13 +144,35 @@ public class Utilities {
 
     if (txId == null) {
       LOG.debug("Transaction ID field not found in recordValue {}", recordValue);
-      return null;
+        return extractTxIdFromRecordValueAsJson(recordValue);
     }
 
     try {
       return Long.parseLong(txId.toString().trim());
     } catch (NumberFormatException e) {
       LOG.warn("Failed to parse transaction ID: {}", txId, e);
+      return null;
+    }
+  }
+
+  public static Long extractTxIdFromRecordValueAsJson(Object recordValue) {
+    if (recordValue == null) {
+      LOG.debug("Record value is null");
+      return null;
+    }
+
+    try {
+      JsonNode rootNode = objectMapper.readTree(recordValue.toString());
+      JsonNode txIdNode = rootNode.at("/_cdc/txid");
+
+      if (txIdNode.isMissingNode()) {
+        LOG.debug("Transaction ID field not found in recordValue {}", recordValue);
+        return null;
+      }
+
+      return txIdNode.asLong();
+    } catch (IOException e) {
+      LOG.warn("Failed to parse record value as JSON: {}", recordValue, e);
       return null;
     }
   }
