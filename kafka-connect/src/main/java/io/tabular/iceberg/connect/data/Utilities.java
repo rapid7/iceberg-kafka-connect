@@ -162,11 +162,16 @@ public class Utilities {
     }
 
     try {
-      JsonNode rootNode = objectMapper.readTree(recordValue.toString());
+      String jsonString = recordValue.toString()
+              .replaceAll("([a-zA-Z0-9_]+)=", "\"$1\":")
+              .replaceAll("=", ":")
+              .replaceAll("'", "\"");
+
+      JsonNode rootNode = objectMapper.readTree(jsonString);
       JsonNode txIdNode = rootNode.at("/_cdc/txid");
 
       if (txIdNode.isMissingNode()) {
-        LOG.debug("Transaction ID field not found in recordValue {}", recordValue);
+        LOG.debug("Transaction ID node not found in recordValue json object {}", recordValue);
         return null;
       }
 
