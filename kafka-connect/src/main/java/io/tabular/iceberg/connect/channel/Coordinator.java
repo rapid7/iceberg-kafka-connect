@@ -129,11 +129,10 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (envelope.event().payload() instanceof TransactionDataComplete) {
           TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
           List<TopicPartitionTransaction> txIds = payload.txIds();
-          if (txIds != null) {
+          LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
             txIds.forEach(
                     txId -> highestTxIdPerPartition().put(txId.partition(),
                             Math.max(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
-          }
         }
         if (commitState.isCommitReady(totalPartitionCount)) {
           commit(false);
@@ -255,7 +254,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
-            addTxIdDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
+            addTxDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
           }
 
           appendOp.commit();
@@ -270,7 +269,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (vtts != null) {
           deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
         }
-        addTxIdDataToSnapshot(deltaOp, txIdValidThrough, maxTxId);
+        addTxDataToSnapshot(deltaOp, txIdValidThrough, maxTxId);
         dataFiles.forEach(deltaOp::addRows);
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
@@ -296,7 +295,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
   }
 
-  private void addTxIdDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
+  private void addTxDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
     if (txIdValidThrough > 0 && maxTxId > 0) {
       operation.set(TXID_VALID_THROUGH_PROP, Long.toString(txIdValidThrough));
       operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
