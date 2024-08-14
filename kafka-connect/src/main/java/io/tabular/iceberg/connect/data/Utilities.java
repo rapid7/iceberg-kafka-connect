@@ -136,24 +136,10 @@ public class Utilities {
     }
   }
 
-  public static Long extractTxIdFromRecordValueOG(Object recordValue, String fieldName) {
-    Object txId = extractFromRecordValue(recordValue, fieldName);
-
-    if (txId == null) {
-      LOG.debug("Transaction ID field not found in record {}", recordValue);
-      return null;
-    }
-
-    try {
-      return Long.parseLong(txId.toString().trim());
-    } catch (NumberFormatException e) {
-      LOG.warn("Invalid transaction ID value: {}", txId);
-      return null;
-    }
-  }
-
   public static Long extractTxIdFromRecordValue(Object recordValue, String fieldName) {
-
+    if (recordValue == null) {
+      return null;
+    }
       String recordStr = recordValue.toString();
       String fieldValue = extractFieldValue(recordStr, fieldName);
       if (fieldValue != null) {
