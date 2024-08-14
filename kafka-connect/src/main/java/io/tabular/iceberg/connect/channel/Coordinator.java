@@ -42,6 +42,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
@@ -232,8 +233,8 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      String txIdValidThrough = Long.toString(Utilities.calculateTxIdValidThrough(highestTxIdPerPartition()));
-      String maxTxId = Long.toString(Utilities.getMaxTxId(highestTxIdPerPartition()));
+      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
+      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
@@ -254,8 +255,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
-            appendOp.set(TXID_VALID_THROUGH_PROP, txIdValidThrough);
-            appendOp.set(TXID_MAX_PROP, maxTxId);
+            addTxIdDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
           }
 
           appendOp.commit();
@@ -270,8 +270,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (vtts != null) {
           deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
         }
-        deltaOp.set(TXID_VALID_THROUGH_PROP, txIdValidThrough);
-        deltaOp.set(TXID_MAX_PROP, maxTxId);
+        addTxIdDataToSnapshot(deltaOp, txIdValidThrough, maxTxId);
         dataFiles.forEach(deltaOp::addRows);
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
@@ -294,6 +293,16 @@ public class Coordinator extends Channel implements AutoCloseable {
           snapshotId,
           commitState.currentCommitId(),
           vtts);
+    }
+  }
+
+  private void addTxIdDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
+    if (txIdValidThrough > 0 && maxTxId > 0) {
+      operation.set(TXID_VALID_THROUGH_PROP, Long.toString(txIdValidThrough));
+      operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
+      LOG.debug("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
+    } else {
+        LOG.warn("No transaction data to add to snapshot");
     }
   }
 

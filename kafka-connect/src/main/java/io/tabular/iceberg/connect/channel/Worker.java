@@ -101,6 +101,7 @@ class Worker implements Writer, AutoCloseable {
 
     Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
     if (txId != null) {
+      LOG.debug("Found transaction id {} in record", txId);
       sourceTxIds.put(
           new TopicPartition(record.topic(), record.kafkaPartition()),
           txId);

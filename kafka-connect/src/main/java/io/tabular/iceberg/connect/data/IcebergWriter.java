@@ -70,6 +70,7 @@ public class IcebergWriter implements RecordWriter {
         if (cdcField == null) {
           writer.write(row);
         } else {
+          LOG.debug("Extracting CDC field: {} from Record {}", cdcField, record.value());
           Operation op = extractCdcOperation(record.value(), cdcField);
           writer.write(new RecordWrapper(row, op));
         }
@@ -109,6 +110,7 @@ public class IcebergWriter implements RecordWriter {
   private Operation extractCdcOperation(Object recordValue, String cdcField) {
     Object opValue = Utilities.extractFromRecordValue(recordValue, cdcField);
 
+    LOG.debug("Processing cdc field value: {}", opValue);
     if (opValue == null) {
       return Operation.INSERT;
     }
