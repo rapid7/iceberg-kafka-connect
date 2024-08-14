@@ -144,7 +144,7 @@ public class Utilities {
 
     if (txId == null) {
       LOG.debug("Transaction ID field not found in recordValue {}", recordValue);
-        return extractTxIdFromRecordValueAsJson(recordValue);
+      return extractTxIdFromRecordValueAsJson(recordValue);
     }
 
     try {
@@ -164,6 +164,7 @@ public class Utilities {
     try {
       String jsonString = recordValue.toString()
               .replaceAll("([a-zA-Z0-9_]+)=", "\"$1\":")
+              .replaceAll("=([a-zA-Z0-9_]+)", ":\"$1\"")
               .replaceAll("=", ":")
               .replaceAll("'", "\"");
 
