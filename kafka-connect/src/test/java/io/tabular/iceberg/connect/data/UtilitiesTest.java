@@ -157,4 +157,12 @@ public class UtilitiesTest {
     Object result = Utilities.extractFromRecordValue(val, "data.id.key");
     assertThat(result).isEqualTo(123L);
   }
+
+  @Test
+  public void testExtractTxIdFromRecordValue() {
+    String recordValue = "{product=theora-tools, rowcreatedtimestamp=1723595528604435, source_ts_us=Wed Aug 14 19:48:08 UTC 2024, certainty=1.0, description=Linux theora-tools 1:1.1.1-21.el8, _pkhash=d863eaee4c697faa9a33e2c5cd164e52df6b68b20047cc83359f193181794c79, type=, version=1:1.1.1-21.el8, orgid=00c67732-fbb0-420b-8ebd-7fedbdb99466, rowupdatedtimestamp=1723595528604435, _cdc={op=I, offset=11474746, txid=1555378374, source=vm_ingress.asset_software, ts=1723664888037, target=vm_ingress.asset_software}, assetid=407fec2f-001c-4596-a3ac-683328c47aee-default-asset-1364238, vendor=Linux, family=}";
+    Long expectedTxId = 1555378374L;
+    Long actualTxId = Utilities.extractTxIdFromRecordValue(recordValue, "txid");
+    assertThat(actualTxId).isEqualTo(expectedTxId);
+  }
 }

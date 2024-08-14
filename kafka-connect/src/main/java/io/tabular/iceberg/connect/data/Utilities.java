@@ -24,8 +24,6 @@ import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
 import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES;
 import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES_DEFAULT;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -67,7 +65,6 @@ public class Utilities {
   private static final Logger LOG = LoggerFactory.getLogger(Utilities.class.getName());
   private static final List<String> HADOOP_CONF_FILES =
       ImmutableList.of("core-site.xml", "hdfs-site.xml", "hive-site.xml");
-  private static final ObjectMapper objectMapper = new ObjectMapper();
 
   public static Catalog loadCatalog(IcebergSinkConfig config) {
     return CatalogUtil.buildIcebergCatalog(
@@ -139,48 +136,45 @@ public class Utilities {
     }
   }
 
-  public static Long extractTxIdFromRecordValue(Object recordValue, String fieldName) {
+  public static Long extractTxIdFromRecordValueOG(Object recordValue, String fieldName) {
     Object txId = extractFromRecordValue(recordValue, fieldName);
 
     if (txId == null) {
-      LOG.debug("Transaction ID field not found in recordValue {}", recordValue);
-      return extractTxIdFromRecordValueAsJson(recordValue);
+      LOG.debug("Transaction ID field not found in record {}", recordValue);
+      return null;
     }
 
     try {
       return Long.parseLong(txId.toString().trim());
     } catch (NumberFormatException e) {
-      LOG.warn("Failed to parse transaction ID: {}", txId, e);
+      LOG.warn("Invalid transaction ID value: {}", txId);
       return null;
     }
   }
 
-  public static Long extractTxIdFromRecordValueAsJson(Object recordValue) {
-    if (recordValue == null) {
-      LOG.debug("Record value is null");
-      return null;
-    }
+  public static Long extractTxIdFromRecordValue(Object recordValue, String fieldName) {
 
-    try {
-      String jsonString = recordValue.toString()
-              .replaceAll("([a-zA-Z0-9_]+)=", "\"$1\":")
-              .replaceAll("=([a-zA-Z0-9_]+)", ":\"$1\"")
-              .replaceAll("=", ":")
-              .replaceAll("'", "\"");
-
-      JsonNode rootNode = objectMapper.readTree(jsonString);
-      JsonNode txIdNode = rootNode.at("/_cdc/txid");
-
-      if (txIdNode.isMissingNode()) {
-        LOG.debug("Transaction ID node not found in recordValue json object {}", recordValue);
-        return null;
+      String recordStr = recordValue.toString();
+      String fieldValue = extractFieldValue(recordStr, fieldName);
+      if (fieldValue != null) {
+        try {
+          return Long.parseLong(fieldValue);
+        } catch (NumberFormatException e) {
+          LOG.error("Failed to parse txid value: {}", fieldValue, e);
+        }
       }
+    return null;
+  }
 
-      return txIdNode.asLong();
-    } catch (IOException e) {
-      LOG.warn("Failed to parse record value as JSON: {}", recordValue, e);
-      return null;
+  private static String extractFieldValue(String recordStr, String fieldName) {
+    String regex = fieldName.replace(".", "\\.") + "=([^,}]+)";
+    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(regex);
+    java.util.regex.Matcher matcher = pattern.matcher(recordStr);
+
+    if (matcher.find()) {
+      return matcher.group(1);
     }
+    return null;
   }
 
   private static Object getValueFromStruct(Struct struct, String[] fields, int idx) {

@@ -43,7 +43,7 @@ import org.slf4j.LoggerFactory;
 class Worker implements Writer, AutoCloseable {
 
   private static final Logger LOG = LoggerFactory.getLogger(Worker.class);
-  private static final String COL_TXID = "_cdc_txid";
+  private static final String COL_TXID = "txid";
   private final IcebergSinkConfig config;
   private final IcebergWriterFactory writerFactory;
   private final Map<String, RecordWriter> writers;
