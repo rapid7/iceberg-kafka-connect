@@ -132,7 +132,7 @@ public class Utilities {
       return getValueFromMap((Map<?, ?>) recordValue, fields, 0);
     } else {
       throw new UnsupportedOperationException(
-          "Cannot extract value from type: " + recordValue.getClass().getName());
+              "Cannot extract value from type: " + recordValue.getClass().getName());
     }
   }
 
@@ -147,7 +147,7 @@ public class Utilities {
     try {
       return Long.parseLong(txId.toString().trim());
     } catch (NumberFormatException e) {
-      LOG.warn("Invalid transaction ID value: {}", txId);
+      LOG.warn("Failed to parse transaction ID: {}", txId, e);
       return null;
     }
   }
@@ -158,9 +158,13 @@ public class Utilities {
     if (value == null || idx == fields.length - 1) {
       return value;
     }
-
-    Preconditions.checkState(value instanceof Struct, "Expected a struct type");
-    return getValueFromStruct((Struct) value, fields, idx + 1);
+    if (value instanceof Struct) {
+      return getValueFromStruct((Struct) value, fields, idx + 1);
+    } else if (value instanceof Map) {
+      return getValueFromMap((Map<?, ?>) value, fields, idx + 1);
+    } else {
+      return value;
+    }
   }
 
   private static Object getValueFromMap(Map<?, ?> map, String[] fields, int idx) {
@@ -169,9 +173,13 @@ public class Utilities {
     if (value == null || idx == fields.length - 1) {
       return value;
     }
-
-    Preconditions.checkState(value instanceof Map, "Expected a map type");
-    return getValueFromMap((Map<?, ?>) value, fields, idx + 1);
+    if (value instanceof Struct) {
+      return getValueFromStruct((Struct) value, fields, idx + 1);
+    } else if (value instanceof Map) {
+      return getValueFromMap((Map<?, ?>) value, fields, idx + 1);
+    } else {
+      return value;
+    }
   }
 
   public static TaskWriter<Record> createTableWriter(
