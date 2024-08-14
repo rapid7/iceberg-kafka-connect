@@ -301,9 +301,11 @@ public class Utilities {
 
   public static Long calculateTxIdValidThrough(Map<?, Long> highestTxIdPerPartition) {
     if (highestTxIdPerPartition.isEmpty()) {
+      LOG.debug("Transaction Map is empty, returning 0");
       return 0L;
     }
 
+    LOG.debug("Transaction Map contains {} entries", highestTxIdPerPartition.size());
     // Find the minimum value in the map, as it represents the highest transaction ID
     // that is common across all partitions
     long minValue = Collections.min(highestTxIdPerPartition.values());
