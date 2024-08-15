@@ -299,7 +299,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (txIdValidThrough > 0 && maxTxId > 0) {
       operation.set(TXID_VALID_THROUGH_PROP, Long.toString(txIdValidThrough));
       operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
-      LOG.debug("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
+      LOG.info("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
     } else {
         LOG.warn("No transaction data to add to snapshot");
     }
