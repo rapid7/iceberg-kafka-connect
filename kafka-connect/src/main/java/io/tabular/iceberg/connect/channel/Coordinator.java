@@ -130,9 +130,9 @@ public class Coordinator extends Channel implements AutoCloseable {
           TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
           List<TopicPartitionTransaction> txIds = payload.txIds();
           LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
-            txIds.forEach(
-                    txId -> highestTxIdPerPartition().put(txId.partition(),
-                            Math.max(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
+          txIds.forEach(
+                  txId -> highestTxIdPerPartition().put(txId.partition(),
+                          compareTxIds(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
         }
         if (commitState.isCommitReady(totalPartitionCount)) {
           commit(false);
@@ -140,6 +140,25 @@ public class Coordinator extends Channel implements AutoCloseable {
         return true;
     }
     return false;
+  }
+
+  /**
+   * The rollover handling is managed by the compareTxIds method.
+   * This method compares the current transaction ID (currentTxId) with the new transaction ID (newTxId) and accounts for the rollover scenario.
+   *
+   * Rollover Detection: The method checks if the newTxId is less than the currentTxId and if the difference between them is greater than half of Integer.MAX_VALUE.
+   * This condition indicates that the newTxId has rolled over and is actually higher than the currentTxId.
+   * Return Value: If the rollover condition is met, the method returns the newTxId as the higher value.
+   * Otherwise, it returns the maximum of currentTxId and newTxId.
+   * @param currentTxId
+   * @param newTxId
+   * @return
+   */
+  private long compareTxIds(long currentTxId, long newTxId) {
+    if (newTxId < currentTxId && currentTxId - newTxId > Integer.MAX_VALUE / 2) {
+      return newTxId; // newTxId has rolled over and is actually higher
+    }
+    return Math.max(currentTxId, newTxId);
   }
 
   private void commit(boolean partialCommit) {
