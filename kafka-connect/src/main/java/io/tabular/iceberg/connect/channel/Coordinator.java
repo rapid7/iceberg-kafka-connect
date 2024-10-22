@@ -23,6 +23,7 @@ import static java.util.stream.Collectors.toList;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
+import io.tabular.iceberg.connect.data.Utilities;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -33,11 +34,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
+
+import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
@@ -64,6 +69,8 @@ public class Coordinator extends Channel implements AutoCloseable {
   private static final String COMMIT_ID_SNAPSHOT_PROP = "kafka.connect.commit-id";
   private static final String VTTS_SNAPSHOT_PROP = "kafka.connect.vtts";
   private static final Duration POLL_DURATION = Duration.ofMillis(1000);
+  private static final String TXID_VALID_THROUGH_PROP = "txid-valid-through";
+  private static final String TXID_MAX_PROP = "txid-max";
 
   private final Catalog catalog;
   private final IcebergSinkConfig config;
@@ -119,6 +126,14 @@ public class Coordinator extends Channel implements AutoCloseable {
         return true;
       case DATA_COMPLETE:
         commitState.addReady(envelope);
+        if (envelope.event().payload() instanceof TransactionDataComplete) {
+          TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
+          List<TopicPartitionTransaction> txIds = payload.txIds();
+          LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
+          txIds.forEach(
+                  txId -> highestTxIdPerPartition().put(txId.partition(),
+                          compareTxIds(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
+        }
         if (commitState.isCommitReady(totalPartitionCount)) {
           commit(false);
         }
@@ -126,6 +141,35 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
     return false;
   }
+
+  /**
+   * The rollover handling is managed by the compareTxIds method.
+   * This method compares the current transaction ID (currentTxId) with the new transaction ID (newTxId) and accounts for the rollover scenario.
+   * <p>
+   * Rollover Detection: The method checks if the newTxId is less than the currentTxId and if the difference between them is greater than half of Integer.MAX_VALUE.
+   * This condition indicates that the newTxId has rolled over and is actually higher than the currentTxId.
+   * Return Value: If the rollover condition is met, the method returns the newTxId as the higher value.
+   * Otherwise, it returns the maximum of currentTxId and newTxId.
+   * <p>
+   * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
+   * We are using 2^31 (2,147,483,648) to detect the wraparound correctly.
+   *
+   * @param currentTxId current transaction ID
+   * @param newTxId    new transaction ID
+   * @return the higher of the two transaction IDs accounting for the rollover scenario
+   */
+  private long compareTxIds(long currentTxId, long newTxId) {
+    long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
+
+    if ((newTxId > currentTxId && newTxId - currentTxId <= wraparoundThreshold / 2) ||
+            (newTxId < currentTxId && currentTxId - newTxId > wraparoundThreshold / 2)) {
+      // Wraparound detected: newTxId is actually higher after wrapping around
+      return newTxId;
+    }
+
+    return Math.max(currentTxId, newTxId);
+  }
+
 
   private void commit(boolean partialCommit) {
     try {
@@ -217,6 +261,8 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
+      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
+      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
@@ -237,6 +283,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
+            addTxDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
           }
 
           appendOp.commit();
@@ -251,6 +298,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (vtts != null) {
           deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
         }
+        addTxDataToSnapshot(deltaOp, txIdValidThrough, maxTxId);
         dataFiles.forEach(deltaOp::addRows);
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
@@ -273,6 +321,16 @@ public class Coordinator extends Channel implements AutoCloseable {
           snapshotId,
           commitState.currentCommitId(),
           vtts);
+    }
+  }
+
+  private void addTxDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
+    if (txIdValidThrough > 0 && maxTxId > 0) {
+      operation.set(TXID_VALID_THROUGH_PROP, Long.toString(txIdValidThrough));
+      operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
+      LOG.info("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
+    } else {
+        LOG.warn("No transaction data to add to snapshot");
     }
   }
 
