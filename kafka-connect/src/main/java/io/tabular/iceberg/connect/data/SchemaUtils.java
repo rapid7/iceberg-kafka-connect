@@ -322,7 +322,7 @@ public class SchemaUtils {
       } else if (value instanceof List) {
         List<?> list = (List<?>) value;
         if (list.isEmpty()) {
-          return null;
+          return ListType.ofOptional(nextId(), StringType.get());
         }
         Optional<Type> elementType = inferIcebergType(list.get(0));
         return elementType.map(type -> ListType.ofOptional(nextId(), type)).orElse(null);
