@@ -241,7 +241,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             .filter(
                 envelope -> {
                   Long minOffset = committedOffsets.get(envelope.partition());
-                  return minOffset == null || envelope.offset() >= minOffset;
+                  return minOffset == null || minOffset == 0 || envelope.offset() >= minOffset;
                 })
             .collect(toList());
 
