@@ -1,9 +1,9 @@
 [versions]
 assertj-ver = "3.24.2"
-avro-ver = "1.11.3"
+avro-ver = "1.11.4"
 awaitility-ver = "4.2.0"
 bson-ver = "4.11.0"
-hadoop-ver = "3.3.6"
+hadoop-ver = "3.4.1"
 hive-ver = "2.3.9"
 http-client-ver = "5.2.1"
 iceberg-ver = "1.5.2"
