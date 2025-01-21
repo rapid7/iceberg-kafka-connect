@@ -49,11 +49,15 @@ public class DebeziumTransformTest {
           .field("schema", Schema.STRING_SCHEMA)
           .field("table", Schema.STRING_SCHEMA)
           .build();
+  
+  private static final Schema TS_US_SCHEMA =
+      SchemaBuilder.struct().build();
 
   private static final Schema VALUE_SCHEMA =
       SchemaBuilder.struct()
           .field("op", Schema.STRING_SCHEMA)
           .field("ts_ms", Schema.INT64_SCHEMA)
+          .field("ts_us", TS_US_SCHEMA)
           .field("source", SOURCE_SCHEMA)
           .field("before", ROW_SCHEMA)
           .field("after", ROW_SCHEMA)
