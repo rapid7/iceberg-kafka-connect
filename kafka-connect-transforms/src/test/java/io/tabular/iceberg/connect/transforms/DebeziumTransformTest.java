@@ -29,6 +29,7 @@ import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.sink.SinkRecord;
+import org.apache.kafka.connect.data.Timestamp;
 import org.junit.jupiter.api.Test;
 
 public class DebeziumTransformTest {
@@ -50,14 +51,23 @@ public class DebeziumTransformTest {
           .field("table", Schema.STRING_SCHEMA)
           .build();
   
-  private static final Schema TS_US_SCHEMA =
-      SchemaBuilder.struct().build();
-
+  // Original VALUE_SCHEMA 
   private static final Schema VALUE_SCHEMA =
       SchemaBuilder.struct()
           .field("op", Schema.STRING_SCHEMA)
           .field("ts_ms", Schema.INT64_SCHEMA)
-          .field("ts_us", TS_US_SCHEMA)
+          .field("source", SOURCE_SCHEMA)
+          .field("before", ROW_SCHEMA)
+          .field("after", ROW_SCHEMA)
+          .field("txid", Schema.INT64_SCHEMA)
+          .build();
+
+  // New VALUE_SCHEMA with ts_us to test forked changes
+  private static final Schema VALUE_SCHEMA_WITH_TS_US =
+      SchemaBuilder.struct()
+          .field("op", Schema.STRING_SCHEMA)
+          .field("ts_ms", Schema.INT64_SCHEMA)
+          .field("ts_us", Schema.INT64_SCHEMA)
           .field("source", SOURCE_SCHEMA)
           .field("before", ROW_SCHEMA)
           .field("after", ROW_SCHEMA)
@@ -94,6 +104,43 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
+
+      // Verify source_ts_us has not been added
+      assertThat(value.containsKey("source_ts_us")).isFalse();
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testDebeziumTransformSchemalessWithTsUs() {
+    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
+      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
+
+      Map<String, Object> event = createDebeziumEventMap("u");
+      // Add ts_us to the event
+      long ts_us = System.currentTimeMillis() * 1000;
+      event = new ImmutableMap.Builder<String, Object>()
+          .putAll(event)
+          .put("ts_us", ts_us)
+          .build();
+
+      Map<String, Object> key = ImmutableMap.of("account_id", 1L);
+      SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
+
+      SinkRecord result = smt.apply(record);
+      assertThat(result.value()).isInstanceOf(Map.class);
+      Map<String, Object> value = (Map<String, Object>) result.value();
+
+      assertThat(value.get("account_id")).isEqualTo(1);
+
+      Map<String, Object> cdcMetadata = (Map<String, Object>) value.get("_cdc");
+      assertThat(cdcMetadata.get("op")).isEqualTo("U");
+      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
+      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
+      assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
+
+      // Verify source_ts_us has been added and is correct
+      assertThat(value.get("source_ts_us")).isEqualTo(ts_us);
     }
   }
 
@@ -101,7 +148,7 @@ public class DebeziumTransformTest {
   public void testDebeziumTransformWithSchema() {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
-
+      
       Struct event = createDebeziumEventStruct("u");
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
@@ -117,6 +164,38 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
+
+      // Verify source_ts_us has not been added
+      assertThat(value.schema().field("source_ts_us")).isNull();
+    }
+  }
+
+  @Test
+  public void testDebeziumTransformWithSchemAndTsUs() {
+    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
+      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
+
+      long ts_us = System.currentTimeMillis() * 1000;
+      Struct event = createDebeziumEventStructWithTsUs("u", ts_us);
+      Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
+      SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA_WITH_TS_US, event, 0);
+
+      SinkRecord result = smt.apply(record);
+      assertThat(result.value()).isInstanceOf(Struct.class);
+      Struct value = (Struct) result.value();
+
+      assertThat(value.get("account_id")).isEqualTo(1L);
+
+      Struct cdcMetadata = value.getStruct("_cdc");
+      assertThat(cdcMetadata.get("op")).isEqualTo("U");
+      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
+      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
+      assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
+
+      // Verify source_ts_us is added and correct
+      Schema tsUsSchema = value.schema().field("source_ts_us").schema();
+      assertThat(tsUsSchema).isEqualTo(Timestamp.SCHEMA);
+      assertThat(value.get("source_ts_us")).isEqualTo(new java.util.Date(ts_us));
     }
   }
 
@@ -154,6 +233,25 @@ public class DebeziumTransformTest {
     return new Struct(VALUE_SCHEMA)
         .put("op", operation)
         .put("ts_ms", System.currentTimeMillis())
+        .put("source", source)
+        .put("before", data)
+        .put("after", data);
+  }
+
+  private Struct createDebeziumEventStructWithTsUs(String operation, Long ts_us) {
+    Struct source =
+        new Struct(SOURCE_SCHEMA).put("db", "db").put("schema", "schema").put("table", "tbl");
+
+    Struct data =
+        new Struct(ROW_SCHEMA)
+            .put("account_id", 1L)
+            .put("balance", BigDecimal.valueOf(100))
+            .put("last_updated", Instant.now().toString());
+
+    return new Struct(VALUE_SCHEMA_WITH_TS_US)
+        .put("op", operation)
+        .put("ts_ms", System.currentTimeMillis())
+        .put("ts_us", ts_us)
         .put("source", source)
         .put("before", data)
         .put("after", data);
