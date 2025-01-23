@@ -50,8 +50,8 @@ public class DebeziumTransformTest {
           .field("schema", Schema.STRING_SCHEMA)
           .field("table", Schema.STRING_SCHEMA)
           .build();
-  
-  // Original VALUE_SCHEMA 
+
+  // Original VALUE_SCHEMA
   private static final Schema VALUE_SCHEMA =
       SchemaBuilder.struct()
           .field("op", Schema.STRING_SCHEMA)
@@ -118,10 +118,10 @@ public class DebeziumTransformTest {
 
       Map<String, Object> event = createDebeziumEventMap("u");
       // Add ts_us to the event
-      long ts_us = System.currentTimeMillis() * 1000;
+      long tsUs = System.currentTimeMillis() * 1000;
       event = new ImmutableMap.Builder<String, Object>()
           .putAll(event)
-          .put("ts_us", ts_us)
+          .put("ts_us", tsUs)
           .build();
 
       Map<String, Object> key = ImmutableMap.of("account_id", 1L);
@@ -140,7 +140,7 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
 
       // Verify source_ts_us has been added and is correct
-      assertThat(value.get("source_ts_us")).isEqualTo(ts_us);
+      assertThat(value.get("source_ts_us")).isEqualTo(tsUs);
     }
   }
 
@@ -148,7 +148,7 @@ public class DebeziumTransformTest {
   public void testDebeziumTransformWithSchema() {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
-      
+
       Struct event = createDebeziumEventStruct("u");
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
@@ -175,8 +175,8 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      long ts_us = System.currentTimeMillis() * 1000L;
-      Struct event = createDebeziumEventStructWithTsUs("u", ts_us);
+      long tsUs = System.currentTimeMillis() * 1000L;
+      Struct event = createDebeziumEventStructWithTsUs("u", tsUs);
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA_WITH_TS_US, event, 0);
 
@@ -195,7 +195,7 @@ public class DebeziumTransformTest {
       // Verify source_ts_us is added and correct
       Schema tsUsSchema = value.schema().field("source_ts_us").schema();
       assertThat(tsUsSchema).isEqualTo(Timestamp.SCHEMA);
-      assertThat(value.get("source_ts_us")).isEqualTo(new java.util.Date(ts_us / 1000L));
+      assertThat(value.get("source_ts_us")).isEqualTo(new java.util.Date(tsUs / 1000L));
     }
   }
 
@@ -238,7 +238,7 @@ public class DebeziumTransformTest {
         .put("after", data);
   }
 
-  private Struct createDebeziumEventStructWithTsUs(String operation, Long ts_us) {
+  private Struct createDebeziumEventStructWithTsUs(String operation, Long tsUs) {
     Struct source =
         new Struct(SOURCE_SCHEMA).put("db", "db").put("schema", "schema").put("table", "tbl");
 
@@ -251,7 +251,7 @@ public class DebeziumTransformTest {
     return new Struct(VALUE_SCHEMA_WITH_TS_US)
         .put("op", operation)
         .put("ts_ms", System.currentTimeMillis())
-        .put("ts_us", ts_us)
+        .put("ts_us", tsUs)
         .put("source", source)
         .put("before", data)
         .put("after", data);
