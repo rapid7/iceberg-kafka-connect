@@ -115,7 +115,7 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
     if (value.schema().field("ts_us") != null) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, new java.util.Date(value.getInt64("ts_us")));
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, new java.util.Date(value.getInt64("ts_us") / 1000L));
     }
 
     return record.newRecord(
@@ -270,7 +270,7 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
   private Schema makeUpdatedSchema(Schema schema, Schema cdcSchema) {
     return makeUpdatedSchema(schema, CdcConstants.COL_CDC, cdcSchema);
-}
+  }
 
   @Override
   public ConfigDef config() {
