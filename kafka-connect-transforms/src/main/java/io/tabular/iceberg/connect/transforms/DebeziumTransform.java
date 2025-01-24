@@ -103,6 +103,9 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
     // create the new value
     Schema newValueSchema = makeUpdatedSchema(payloadSchema, cdcSchema);
+    if (value.schema().field("ts_us") != null) {
+      newValueSchema = makeUpdatedSchema(newValueSchema, CustomFieldConstants.SOURCE_TIMESTAMP_US, Timestamp.SCHEMA);
+    }
     Struct newValue = new Struct(newValueSchema);
 
     for (Field field : payloadSchema.fields()) {
@@ -110,8 +113,8 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.getStruct("ts_ms") != null) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(value.getInt64("ts_ms")));
+    if (value.schema().field("ts_us") != null) {
+      newValueSchema = makeUpdatedSchema(newValueSchema, CustomFieldConstants.SOURCE_TIMESTAMP_US, Timestamp.SCHEMA);
     }
 
     return record.newRecord(
@@ -159,8 +162,8 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     Map<String, Object> newValue = Maps.newHashMap((Map<String, Object>) payload);
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.containsKey("ts_ms")) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, value.get("ts_ms"));
+    if (value.containsKey("ts_us")) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, value.get("ts_us"));
     }
 
     return record.newRecord(
@@ -252,16 +255,20 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     return builder.build();
   }
 
-  private Schema makeUpdatedSchema(Schema schema, Schema cdcSchema) {
+  private Schema makeUpdatedSchema(Schema schema, String fieldName, Schema fieldSchema) {
     SchemaBuilder builder = SchemaUtil.copySchemaBasics(schema, SchemaBuilder.struct());
 
     for (Field field : schema.fields()) {
       builder.field(field.name(), field.schema());
     }
 
-    builder.field(CdcConstants.COL_CDC, cdcSchema);
+    builder.field(fieldName, fieldSchema);
 
     return builder.build();
+  }
+
+  private Schema makeUpdatedSchema(Schema schema, Schema cdcSchema) {
+    return makeUpdatedSchema(schema, CdcConstants.COL_CDC, cdcSchema);
   }
 
   @Override
