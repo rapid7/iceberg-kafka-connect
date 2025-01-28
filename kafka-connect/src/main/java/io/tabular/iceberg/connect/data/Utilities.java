@@ -31,6 +31,7 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -121,6 +122,9 @@ public class Utilities {
   }
 
   public static Object extractFromRecordValue(Object recordValue, String fieldName) {
+    if (recordValue == null) {
+      return null;
+    }
     String[] fields = fieldName.split("\\.");
     if (recordValue instanceof Struct) {
       return getValueFromStruct((Struct) recordValue, fields, 0);
@@ -130,6 +134,33 @@ public class Utilities {
       throw new UnsupportedOperationException(
           "Cannot extract value from type: " + recordValue.getClass().getName());
     }
+  }
+
+  public static Long extractTxIdFromRecordValue(Object recordValue, String fieldName) {
+    if (recordValue == null) {
+      return null;
+    }
+      String recordStr = recordValue.toString();
+      String fieldValue = extractFieldValue(recordStr, fieldName);
+      if (fieldValue != null) {
+        try {
+          return Long.parseLong(fieldValue);
+        } catch (NumberFormatException e) {
+          LOG.error("Failed to parse fieldName value: {}", fieldValue, e);
+        }
+      }
+    return null;
+  }
+
+  private static String extractFieldValue(String recordStr, String fieldName) {
+    String regex = fieldName.replace(".", "\\.") + "=([^,}]+)";
+    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(regex);
+    java.util.regex.Matcher matcher = pattern.matcher(recordStr);
+
+    if (matcher.find()) {
+      return matcher.group(1);
+    }
+    return null;
   }
 
   private static Object getValueFromStruct(Struct struct, String[] fields, int idx) {
@@ -277,6 +308,26 @@ public class Utilities {
         }
       }
     }
+  }
+
+  public static Long calculateTxIdValidThrough(Map<?, Long> highestTxIdPerPartition) {
+    if (highestTxIdPerPartition.isEmpty()) {
+      LOG.debug("Transaction Map is empty, returning 0");
+      return 0L;
+    }
+
+    LOG.debug("Transaction Map contains {} entries", highestTxIdPerPartition.size());
+    // Find the minimum value in the map, as it represents the highest transaction ID
+    // that is common across all partitions
+    long minValue = Collections.min(highestTxIdPerPartition.values());
+
+    // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID
+    // If minValue is 1, then there are no completed transactions, so return 0
+    return minValue > 1 ? minValue - 1 : 0;
+  }
+
+  public static Long getMaxTxId(Map<?, Long> highestTxIdPerPartition) {
+    return highestTxIdPerPartition.values().stream().max(Long::compareTo).orElse(0L);
   }
 
   private Utilities() {}
