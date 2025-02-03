@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.kafka.connect.data.Decimal;
 import org.apache.kafka.connect.data.Schema;
@@ -34,45 +35,42 @@ import org.junit.jupiter.api.Test;
 
 public class DebeziumTransformTest {
 
-  private static final Schema KEY_SCHEMA =
-      SchemaBuilder.struct().field("account_id", Schema.INT64_SCHEMA).build();
+  private static final Schema KEY_SCHEMA = SchemaBuilder.struct().field("account_id", Schema.INT64_SCHEMA).build();
 
-  private static final Schema ROW_SCHEMA =
-      SchemaBuilder.struct()
-          .field("account_id", Schema.INT64_SCHEMA)
-          .field("balance", Decimal.schema(2))
-          .field("last_updated", Schema.STRING_SCHEMA)
-          .build();
+  private static final Schema ROW_SCHEMA = SchemaBuilder.struct()
+      .field("account_id", Schema.INT64_SCHEMA)
+      .field("balance", Decimal.schema(2))
+      .field("last_updated", Schema.STRING_SCHEMA)
+      .build();
 
-  private static final Schema SOURCE_SCHEMA =
-      SchemaBuilder.struct()
-          .field("db", Schema.STRING_SCHEMA)
-          .field("schema", Schema.STRING_SCHEMA)
-          .field("table", Schema.STRING_SCHEMA)
-          .build();
+  private static final Schema SOURCE_SCHEMA = SchemaBuilder.struct()
+      .field("db", Schema.STRING_SCHEMA)
+      .field("schema", Schema.STRING_SCHEMA)
+      .field("table", Schema.STRING_SCHEMA)
+      .field("connector", Schema.STRING_SCHEMA)
+      .field("snapshot", Schema.BOOLEAN_SCHEMA)
+      .field("txId", Schema.OPTIONAL_INT64_SCHEMA)
+      .field("gtid", Schema.OPTIONAL_STRING_SCHEMA)
+      .build();
 
   // Original VALUE_SCHEMA
-  private static final Schema VALUE_SCHEMA =
-      SchemaBuilder.struct()
-          .field("op", Schema.STRING_SCHEMA)
-          .field("ts_ms", Schema.INT64_SCHEMA)
-          .field("source", SOURCE_SCHEMA)
-          .field("before", ROW_SCHEMA)
-          .field("after", ROW_SCHEMA)
-          .field("txid", Schema.INT64_SCHEMA)
-          .build();
+  private static final Schema VALUE_SCHEMA = SchemaBuilder.struct()
+      .field("op", Schema.STRING_SCHEMA)
+      .field("ts_ms", Schema.INT64_SCHEMA)
+      .field("source", SOURCE_SCHEMA)
+      .field("before", ROW_SCHEMA)
+      .field("after", ROW_SCHEMA)
+      .build();
 
   // New VALUE_SCHEMA with ts_us to test forked changes
-  private static final Schema VALUE_SCHEMA_WITH_TS_US =
-      SchemaBuilder.struct()
-          .field("op", Schema.STRING_SCHEMA)
-          .field("ts_ms", Schema.INT64_SCHEMA)
-          .field("ts_us", Schema.INT64_SCHEMA)
-          .field("source", SOURCE_SCHEMA)
-          .field("before", ROW_SCHEMA)
-          .field("after", ROW_SCHEMA)
-          .field("txid", Schema.INT64_SCHEMA)
-          .build();
+  private static final Schema VALUE_SCHEMA_WITH_TS_US = SchemaBuilder.struct()
+      .field("op", Schema.STRING_SCHEMA)
+      .field("ts_ms", Schema.INT64_SCHEMA)
+      .field("ts_us", Schema.INT64_SCHEMA)
+      .field("source", SOURCE_SCHEMA)
+      .field("before", ROW_SCHEMA)
+      .field("after", ROW_SCHEMA)
+      .build();
 
   @Test
   public void testDmsTransformNull() {
@@ -89,7 +87,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Map<String, Object> event = createDebeziumEventMap("u");
+      Map<String, Object> event = createDebeziumEventMap("u", "postgresql", false, 1L, null);
       Map<String, Object> key = ImmutableMap.of("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
 
@@ -105,6 +103,9 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
 
+      // Verify txid has been added
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
+
       // Verify source_ts_us has not been added
       assertThat(value.containsKey("source_ts_us")).isFalse();
     }
@@ -116,7 +117,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Map<String, Object> event = createDebeziumEventMap("u");
+      Map<String, Object> event = createDebeziumEventMap("u", "postgresql", false, 1L, null);
       // Add ts_us to the event
       long tsUs = System.currentTimeMillis() * 1000;
       event = new ImmutableMap.Builder<String, Object>()
@@ -139,8 +140,71 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
 
+      // Verify txid has been added
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
+
       // Verify source_ts_us has been added and is correct
       assertThat(value.get("source_ts_us")).isEqualTo(tsUs);
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testDebeziumTransformSchemalessMySQL() {
+    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
+      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
+
+      Map<String, Object> event = createDebeziumEventMap("u", "mysql", false, null, "0000-0000-0000:1");
+      Map<String, Object> key = ImmutableMap.of("account_id", 1L);
+      SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
+
+      SinkRecord result = smt.apply(record);
+      assertThat(result.value()).isInstanceOf(Map.class);
+      Map<String, Object> value = (Map<String, Object>) result.value();
+
+      assertThat(value.get("account_id")).isEqualTo(1);
+
+      Map<String, Object> cdcMetadata = (Map<String, Object>) value.get("_cdc");
+      assertThat(cdcMetadata.get("op")).isEqualTo("U");
+      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
+      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
+      assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
+
+      // Verify txid has been extracted from gtid
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
+
+      // Verify source_ts_us has not been added
+      assertThat(value.containsKey("source_ts_us")).isFalse();
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testDebeziumTransformSchemalessMySQLSnapshotting() {
+    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
+      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
+
+      Map<String, Object> event = createDebeziumEventMap("u", "mysql", true, null, null);
+      Map<String, Object> key = ImmutableMap.of("account_id", 1L);
+      SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
+
+      SinkRecord result = smt.apply(record);
+      assertThat(result.value()).isInstanceOf(Map.class);
+      Map<String, Object> value = (Map<String, Object>) result.value();
+
+      assertThat(value.get("account_id")).isEqualTo(1);
+
+      Map<String, Object> cdcMetadata = (Map<String, Object>) value.get("_cdc");
+      assertThat(cdcMetadata.get("op")).isEqualTo("U");
+      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
+      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
+      assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
+
+      // Verify txid has been set to 0 as gtid is null when snapshotting
+      assertThat(cdcMetadata.get("txid")).isEqualTo(0L);
+
+      // Verify source_ts_us has not been added
+      assertThat(value.containsKey("source_ts_us")).isFalse();
     }
   }
 
@@ -149,7 +213,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Struct event = createDebeziumEventStruct("u");
+      Struct event = createDebeziumEventStruct("u", "postgresql", false, 1L, null);
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
 
@@ -165,6 +229,9 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
 
+      // Verify txid has been added
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
+
       // Verify source_ts_us has not been added
       assertThat(value.schema().field("source_ts_us")).isNull();
     }
@@ -176,7 +243,7 @@ public class DebeziumTransformTest {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
       long tsUs = System.currentTimeMillis() * 1000L;
-      Struct event = createDebeziumEventStructWithTsUs("u", tsUs);
+      Struct event = createDebeziumEventStructWithTsUs("u", "postgresql", false, 1L, null, tsUs);
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA_WITH_TS_US, event, 0);
 
@@ -192,6 +259,9 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
 
+      // Verify txid has been added
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
+
       // Verify source_ts_us is added and correct
       Schema tsUsSchema = value.schema().field("source_ts_us").schema();
       assertThat(tsUsSchema).isEqualTo(Timestamp.SCHEMA);
@@ -199,18 +269,79 @@ public class DebeziumTransformTest {
     }
   }
 
-  private Map<String, Object> createDebeziumEventMap(String operation) {
-    Map<String, Object> source =
-        ImmutableMap.of(
-            "db", "db",
-            "schema", "schema",
-            "table", "tbl");
+  @Test
+  public void testDebeziumTransformWithSchemaMySQL() {
+    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
+      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-    Map<String, Object> data =
-        ImmutableMap.of(
-            "account_id", 1,
-            "balance", 100,
-            "last_updated", Instant.now().toString());
+      Struct event = createDebeziumEventStruct("u", "mysql", false, null, "0000-0000-0000:1");
+      Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
+      SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
+
+      SinkRecord result = smt.apply(record);
+      assertThat(result.value()).isInstanceOf(Struct.class);
+      Struct value = (Struct) result.value();
+
+      assertThat(value.get("account_id")).isEqualTo(1L);
+
+      Struct cdcMetadata = value.getStruct("_cdc");
+      assertThat(cdcMetadata.get("op")).isEqualTo("U");
+      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
+      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
+      assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
+
+      // Verify txid has been extracted from gtid
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
+
+      // Verify source_ts_us has not been added
+      assertThat(value.schema().field("source_ts_us")).isNull();
+    }
+  }
+
+  @Test
+  public void testDebeziumTransformWithSchemaMySQLSnapshotting() {
+    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
+      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
+
+      Struct event = createDebeziumEventStruct("u", "mysql", true, null, null);
+      Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
+      SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
+
+      SinkRecord result = smt.apply(record);
+      assertThat(result.value()).isInstanceOf(Struct.class);
+      Struct value = (Struct) result.value();
+
+      assertThat(value.get("account_id")).isEqualTo(1L);
+
+      Struct cdcMetadata = value.getStruct("_cdc");
+      assertThat(cdcMetadata.get("op")).isEqualTo("U");
+      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
+      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
+      assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
+
+      // Verify txid has been set to 0 as gtid is null when snapshotting
+      assertThat(cdcMetadata.get("txid")).isEqualTo(0L);
+
+      // Verify source_ts_us has not been added
+      assertThat(value.schema().field("source_ts_us")).isNull();
+    }
+  }
+
+  private Map<String, Object> createDebeziumEventMap(String operation, String connector, Boolean snapshot, Long txid,
+      String gtid) {
+    Map<String, Object> source = Maps.newHashMap();
+    source.put("db", "db");
+    source.put("schema", "schema");
+    source.put("table", "tbl");
+    source.put("connector", connector);
+    source.put("snapshot", snapshot);
+    source.put("txId", txid);
+    source.put("gtid", gtid);
+
+    Map<String, Object> data = ImmutableMap.of(
+        "account_id", 1,
+        "balance", 100,
+        "last_updated", Instant.now().toString());
 
     return ImmutableMap.of(
         "op", operation,
@@ -220,15 +351,21 @@ public class DebeziumTransformTest {
         "after", data);
   }
 
-  private Struct createDebeziumEventStruct(String operation) {
-    Struct source =
-        new Struct(SOURCE_SCHEMA).put("db", "db").put("schema", "schema").put("table", "tbl");
+  private Struct createDebeziumEventStruct(String operation, String connector, Boolean snapshot, Long txid,
+      String gtid) {
+    Struct source = new Struct(SOURCE_SCHEMA)
+        .put("db", "db")
+        .put("schema", "schema")
+        .put("table", "tbl")
+        .put("connector", connector)
+        .put("snapshot", snapshot)
+        .put("txId", txid)
+        .put("gtid", gtid);
 
-    Struct data =
-        new Struct(ROW_SCHEMA)
-            .put("account_id", 1L)
-            .put("balance", BigDecimal.valueOf(100))
-            .put("last_updated", Instant.now().toString());
+    Struct data = new Struct(ROW_SCHEMA)
+        .put("account_id", 1L)
+        .put("balance", BigDecimal.valueOf(100))
+        .put("last_updated", Instant.now().toString());
 
     return new Struct(VALUE_SCHEMA)
         .put("op", operation)
@@ -238,15 +375,21 @@ public class DebeziumTransformTest {
         .put("after", data);
   }
 
-  private Struct createDebeziumEventStructWithTsUs(String operation, Long tsUs) {
-    Struct source =
-        new Struct(SOURCE_SCHEMA).put("db", "db").put("schema", "schema").put("table", "tbl");
+  private Struct createDebeziumEventStructWithTsUs(String operation, String connector, Boolean snapshot, Long txid,
+      String gtid, Long tsUs) {
+    Struct source = new Struct(SOURCE_SCHEMA)
+        .put("db", "db")
+        .put("schema", "schema")
+        .put("table", "tbl")
+        .put("connector", connector)
+        .put("snapshot", snapshot)
+        .put("txId", txid)
+        .put("gtid", gtid);
 
-    Struct data =
-        new Struct(ROW_SCHEMA)
-            .put("account_id", 1L)
-            .put("balance", BigDecimal.valueOf(100))
-            .put("last_updated", Instant.now().toString());
+    Struct data = new Struct(ROW_SCHEMA)
+        .put("account_id", 1L)
+        .put("balance", BigDecimal.valueOf(100))
+        .put("last_updated", Instant.now().toString());
 
     return new Struct(VALUE_SCHEMA_WITH_TS_US)
         .put("op", operation)

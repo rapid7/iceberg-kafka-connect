@@ -191,7 +191,6 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
   private void setTableAndTargetFromSourceStruct(Struct source, Struct cdcMetadata) {
     String db;
-    Long txid = null;
 
     if (source.schema().field("schema") != null) {
       // prefer schema if present, e.g. for Postgres
@@ -202,20 +201,49 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
     String table = source.getString("table");
 
-    if (source.schema().field("txId") != null) {
-      txid = source.getInt64("txId");
-    }
+    // Extract transaction ID based on connector type
+    Long txid = extractTransactionIdFromSourceStruct(source);
 
     cdcMetadata.put(CdcConstants.COL_SOURCE, db + "." + table);
     cdcMetadata.put(CdcConstants.COL_TARGET, target(db, table));
     cdcMetadata.put(CdcConstants.COL_TXID, txid);
   }
 
+  private Long extractTransactionIdFromSourceStruct(Struct source) {
+    String connector = source.getString("connector");
+
+    if ("postgresql".equals(connector)) {
+      // Check for txId field for postgresql
+      if (source.schema().field("txId") != null) {
+        return source.getInt64("txId");
+      }
+    } else if ("mysql".equals(connector)) {
+      // Check if in snapshot mode first
+      if (source.schema().field("snapshot") != null && source.getBoolean("snapshot")) {
+        // Return 0 as gtid is null when snapshotting
+        return 0L;
+      }
+
+      // Not in snapshot mode, check for gtid field for mysql
+      if (source.schema().field("gtid") != null) {
+        String gtid = source.getString("gtid");
+        // Split gtid into uuid and txid
+        String[] gtidSections = gtid.split(":");
+        // Return txid section
+        if (gtidSections.length == 2) {
+          return Long.valueOf(gtidSections[1]);
+        }
+      }
+    } else {
+      LOG.warn("Transactional consistency is not currently supported for connector type: {}", connector);
+    }
+    return null;
+  }
+
   private void setTableAndTargetFromSourceMap(Object source, Map<String, Object> cdcMetadata) {
     Map<String, Object> map = Requirements.requireMap(source, "Debezium transform");
 
     String db;
-    Long txid = null;
     if (map.containsKey("schema")) {
       // prefer schema if present, e.g. for Postgres
       db = map.get("schema").toString();
@@ -224,13 +252,44 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     String table = map.get("table").toString();
 
-    if (map.containsKey("txId")) {
-      txid = Long.valueOf(map.get("txId").toString());
-    }
+    // Extract transaction ID based on connector type
+    Long txid = extractTransactionIdFromSourceMap(map);
 
     cdcMetadata.put(CdcConstants.COL_SOURCE, db + "." + table);
     cdcMetadata.put(CdcConstants.COL_TARGET, target(db, table));
     cdcMetadata.put(CdcConstants.COL_TXID, txid);
+  }
+
+  private Long extractTransactionIdFromSourceMap(Map<String, Object> source) {
+    String connector = source.get("connector").toString();
+
+    if ("postgresql".equals(connector)) {
+      // Check for txId field for postgresql
+      if (source.containsKey("txId")) {
+        // Return txid
+        return Long.valueOf(source.get("txId").toString());
+      }
+    } else if ("mysql".equals(connector)) {
+      // Check if in snapshot mode first
+      if (source.containsKey("snapshot") && Boolean.TRUE.equals(source.get("snapshot"))) {
+        // Return 0 as gtid is null when snapshotting
+        return 0L;
+      }
+
+      // Not in snapshot mode, check for gtid field for mysql
+      if (source.containsKey("gtid")) {
+        String gtid = source.get("gtid").toString();
+        // Split gtid into uuid and txid
+        String[] gtidSections = gtid.split(":");
+        // Return txid section
+        if (gtidSections.length == 2) {
+          return Long.valueOf(gtidSections[1]);
+        }
+      }
+    } else {
+      LOG.warn("Transactional consistency is not currently supported for connector type: {}", connector);
+    }
+    return null;
   }
 
   private String target(String db, String table) {
