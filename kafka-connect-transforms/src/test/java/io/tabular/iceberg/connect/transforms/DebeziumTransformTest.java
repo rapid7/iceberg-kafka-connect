@@ -48,7 +48,7 @@ public class DebeziumTransformTest {
       .field("schema", Schema.STRING_SCHEMA)
       .field("table", Schema.STRING_SCHEMA)
       .field("connector", Schema.STRING_SCHEMA)
-      .field("snapshot", Schema.BOOLEAN_SCHEMA)
+      .field("snapshot", Schema.STRING_SCHEMA)
       .field("txId", Schema.OPTIONAL_INT64_SCHEMA)
       .field("gtid", Schema.OPTIONAL_STRING_SCHEMA)
       .build();
@@ -87,7 +87,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Map<String, Object> event = createDebeziumEventMap("u", "postgresql", false, 1L, null);
+      Map<String, Object> event = createDebeziumEventMap("u", "postgresql", "false", 1L, null);
       Map<String, Object> key = ImmutableMap.of("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
 
@@ -117,7 +117,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Map<String, Object> event = createDebeziumEventMap("u", "postgresql", false, 1L, null);
+      Map<String, Object> event = createDebeziumEventMap("u", "postgresql", "false", 1L, null);
       // Add ts_us to the event
       long tsUs = System.currentTimeMillis() * 1000;
       event = new ImmutableMap.Builder<String, Object>()
@@ -154,7 +154,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Map<String, Object> event = createDebeziumEventMap("u", "mysql", false, null, "0000-0000-0000:1");
+      Map<String, Object> event = createDebeziumEventMap("u", "mysql", "false", null, "0000-0000-0000:1");
       Map<String, Object> key = ImmutableMap.of("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
 
@@ -184,7 +184,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Map<String, Object> event = createDebeziumEventMap("u", "mysql", true, null, null);
+      Map<String, Object> event = createDebeziumEventMap("u", "mysql", "true", null, null);
       Map<String, Object> key = ImmutableMap.of("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
 
@@ -213,7 +213,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Struct event = createDebeziumEventStruct("u", "postgresql", false, 1L, null);
+      Struct event = createDebeziumEventStruct("u", "postgresql", "false", 1L, null);
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
 
@@ -243,7 +243,7 @@ public class DebeziumTransformTest {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
       long tsUs = System.currentTimeMillis() * 1000L;
-      Struct event = createDebeziumEventStructWithTsUs("u", "postgresql", false, 1L, null, tsUs);
+      Struct event = createDebeziumEventStructWithTsUs("u", "postgresql", "false", 1L, null, tsUs);
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA_WITH_TS_US, event, 0);
 
@@ -274,7 +274,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Struct event = createDebeziumEventStruct("u", "mysql", false, null, "0000-0000-0000:1");
+      Struct event = createDebeziumEventStruct("u", "mysql", "false", null, "0000-0000-0000:1");
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
 
@@ -303,7 +303,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Struct event = createDebeziumEventStruct("u", "mysql", true, null, null);
+      Struct event = createDebeziumEventStruct("u", "mysql", "true", null, null);
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
 
@@ -327,7 +327,7 @@ public class DebeziumTransformTest {
     }
   }
 
-  private Map<String, Object> createDebeziumEventMap(String operation, String connector, Boolean snapshot, Long txid,
+  private Map<String, Object> createDebeziumEventMap(String operation, String connector, String snapshot, Long txid,
       String gtid) {
     Map<String, Object> source = Maps.newHashMap();
     source.put("db", "db");
@@ -351,7 +351,7 @@ public class DebeziumTransformTest {
         "after", data);
   }
 
-  private Struct createDebeziumEventStruct(String operation, String connector, Boolean snapshot, Long txid,
+  private Struct createDebeziumEventStruct(String operation, String connector, String snapshot, Long txid,
       String gtid) {
     Struct source = new Struct(SOURCE_SCHEMA)
         .put("db", "db")
@@ -375,7 +375,7 @@ public class DebeziumTransformTest {
         .put("after", data);
   }
 
-  private Struct createDebeziumEventStructWithTsUs(String operation, String connector, Boolean snapshot, Long txid,
+  private Struct createDebeziumEventStructWithTsUs(String operation, String connector, String snapshot, Long txid,
       String gtid, Long tsUs) {
     Struct source = new Struct(SOURCE_SCHEMA)
         .put("db", "db")
