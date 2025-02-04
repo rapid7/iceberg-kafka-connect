@@ -153,7 +153,6 @@ public class Coordinator extends Channel implements AutoCloseable {
    * <p>
    * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
    * We are using 2^31 (2,147,483,648) to detect the wraparound correctly.
-   * 
    * TODO (2471-02-04): MySQL transaction ID limit needs addressing, threshold it 2^63 -1 and there is no wraparound
    *
    * @param currentTxId current transaction ID
@@ -161,7 +160,7 @@ public class Coordinator extends Channel implements AutoCloseable {
    * @return the higher of the two transaction IDs accounting for the rollover scenario
    */
   private long compareTxIds(long currentTxId, long newTxId) {
-    long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point) 
+    long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
 
     if ((newTxId > currentTxId && newTxId - currentTxId <= wraparoundThreshold / 2) ||
             (newTxId < currentTxId && currentTxId - newTxId > wraparoundThreshold / 2)) {
