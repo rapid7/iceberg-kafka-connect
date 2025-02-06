@@ -44,14 +44,13 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
   private static final String DB_PLACEHOLDER = "{db}";
   private static final String TABLE_PLACEHOLDER = "{table}";
 
-  public static final ConfigDef CONFIG_DEF =
-      new ConfigDef()
-          .define(
-              CDC_TARGET_PATTERN,
-              ConfigDef.Type.STRING,
-              null,
-              Importance.MEDIUM,
-              "Pattern to use for setting the CDC target field value.");
+  public static final ConfigDef CONFIG_DEF = new ConfigDef()
+      .define(
+          CDC_TARGET_PATTERN,
+          ConfigDef.Type.STRING,
+          null,
+          Importance.MEDIUM,
+          "Pattern to use for setting the CDC target field value.");
 
   private String cdcTargetPattern;
 
@@ -103,8 +102,8 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
     // create the new value
     Schema newValueSchema = makeUpdatedSchema(payloadSchema, cdcSchema);
-    if (value.schema().field("ts_us") != null) {
-      newValueSchema = makeUpdatedSchema(newValueSchema, CustomFieldConstants.SOURCE_TIMESTAMP_US, Timestamp.SCHEMA);
+    if (value.schema().field("ts_ms") != null) {
+      newValueSchema = makeUpdatedSchema(newValueSchema, CustomFieldConstants.SOURCE_TIMESTAMP_MS, Timestamp.SCHEMA);
     }
 
     Struct newValue = new Struct(newValueSchema);
@@ -114,8 +113,8 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.schema().field("ts_us") != null) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, new java.util.Date(value.getInt64("ts_us") / 1000L));
+    if (value.schema().field("ts_ms") != null) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(value.getInt64("ts_ms")));
     }
 
     return record.newRecord(
@@ -163,8 +162,9 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     Map<String, Object> newValue = Maps.newHashMap((Map<String, Object>) payload);
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.containsKey("ts_us")) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, value.get("ts_us"));
+    if (value.containsKey("ts_ms")) {
+      long tsms = ((Number) value.get("ts_ms")).longValue();
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(tsms));
     }
 
     return record.newRecord(
@@ -299,14 +299,13 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
   }
 
   private Schema makeCdcSchema(Schema keySchema) {
-    SchemaBuilder builder =
-        SchemaBuilder.struct()
-            .field(CdcConstants.COL_OP, Schema.STRING_SCHEMA)
-            .field(CdcConstants.COL_TS, Timestamp.SCHEMA)
-            .field(CdcConstants.COL_OFFSET, Schema.OPTIONAL_INT64_SCHEMA)
-            .field(CdcConstants.COL_SOURCE, Schema.STRING_SCHEMA)
-            .field(CdcConstants.COL_TARGET, Schema.STRING_SCHEMA)
-            .field(CdcConstants.COL_TXID, Schema.OPTIONAL_INT64_SCHEMA);
+    SchemaBuilder builder = SchemaBuilder.struct()
+        .field(CdcConstants.COL_OP, Schema.STRING_SCHEMA)
+        .field(CdcConstants.COL_TS, Timestamp.SCHEMA)
+        .field(CdcConstants.COL_OFFSET, Schema.OPTIONAL_INT64_SCHEMA)
+        .field(CdcConstants.COL_SOURCE, Schema.STRING_SCHEMA)
+        .field(CdcConstants.COL_TARGET, Schema.STRING_SCHEMA)
+        .field(CdcConstants.COL_TXID, Schema.OPTIONAL_INT64_SCHEMA);
 
     if (keySchema != null) {
       builder.field(CdcConstants.COL_KEY, keySchema);
@@ -337,5 +336,6 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
   }
 
   @Override
-  public void close() {}
+  public void close() {
+  }
 }

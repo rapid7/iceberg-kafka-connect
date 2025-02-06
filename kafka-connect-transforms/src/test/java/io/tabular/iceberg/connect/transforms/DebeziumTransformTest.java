@@ -35,6 +35,8 @@ import org.junit.jupiter.api.Test;
 
 public class DebeziumTransformTest {
 
+  private static final long TS_MS = System.currentTimeMillis();
+
   private static final Schema KEY_SCHEMA = SchemaBuilder.struct().field("account_id", Schema.INT64_SCHEMA).build();
 
   private static final Schema ROW_SCHEMA = SchemaBuilder.struct()
@@ -57,16 +59,6 @@ public class DebeziumTransformTest {
   private static final Schema VALUE_SCHEMA = SchemaBuilder.struct()
       .field("op", Schema.STRING_SCHEMA)
       .field("ts_ms", Schema.INT64_SCHEMA)
-      .field("source", SOURCE_SCHEMA)
-      .field("before", ROW_SCHEMA)
-      .field("after", ROW_SCHEMA)
-      .build();
-
-  // New VALUE_SCHEMA with ts_us to test forked changes
-  private static final Schema VALUE_SCHEMA_WITH_TS_US = SchemaBuilder.struct()
-      .field("op", Schema.STRING_SCHEMA)
-      .field("ts_ms", Schema.INT64_SCHEMA)
-      .field("ts_us", Schema.INT64_SCHEMA)
       .field("source", SOURCE_SCHEMA)
       .field("before", ROW_SCHEMA)
       .field("after", ROW_SCHEMA)
@@ -106,45 +98,8 @@ public class DebeziumTransformTest {
       // Verify txid has been added
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_us has not been added
-      assertThat(value.containsKey("source_ts_us")).isFalse();
-    }
-  }
-
-  @Test
-  @SuppressWarnings("unchecked")
-  public void testDebeziumTransformSchemalessWithTsUs() {
-    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
-      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
-
-      Map<String, Object> event = createDebeziumEventMap("u", "postgresql", "false", 1L, null);
-      // Add ts_us to the event
-      long tsUs = System.currentTimeMillis() * 1000;
-      event = new ImmutableMap.Builder<String, Object>()
-          .putAll(event)
-          .put("ts_us", tsUs)
-          .build();
-
-      Map<String, Object> key = ImmutableMap.of("account_id", 1L);
-      SinkRecord record = new SinkRecord("topic", 0, null, key, null, event, 0);
-
-      SinkRecord result = smt.apply(record);
-      assertThat(result.value()).isInstanceOf(Map.class);
-      Map<String, Object> value = (Map<String, Object>) result.value();
-
-      assertThat(value.get("account_id")).isEqualTo(1);
-
-      Map<String, Object> cdcMetadata = (Map<String, Object>) value.get("_cdc");
-      assertThat(cdcMetadata.get("op")).isEqualTo("U");
-      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
-      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
-      assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
-
-      // Verify txid has been added
-      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
-
-      // Verify source_ts_us has been added and is correct
-      assertThat(value.get("source_ts_us")).isEqualTo(tsUs);
+      // Verify source_ts_ms has been added
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -173,8 +128,8 @@ public class DebeziumTransformTest {
       // Verify txid has been extracted from gtid
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_us has not been added
-      assertThat(value.containsKey("source_ts_us")).isFalse();
+      // Verify source_ts_ms has been added
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -203,8 +158,8 @@ public class DebeziumTransformTest {
       // Verify txid has been set to 0 as gtid is null when snapshotting
       assertThat(cdcMetadata.get("txid")).isEqualTo(0L);
 
-      // Verify source_ts_us has not been added
-      assertThat(value.containsKey("source_ts_us")).isFalse();
+      // Verify source_ts_ms has been added
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -232,40 +187,10 @@ public class DebeziumTransformTest {
       // Verify txid has been added
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_us has not been added
-      assertThat(value.schema().field("source_ts_us")).isNull();
-    }
-  }
-
-  @Test
-  public void testDebeziumTransformWithSchemAndTsUs() {
-    try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
-      smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
-
-      long tsUs = System.currentTimeMillis() * 1000L;
-      Struct event = createDebeziumEventStructWithTsUs("u", "postgresql", "false", 1L, null, tsUs);
-      Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
-      SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA_WITH_TS_US, event, 0);
-
-      SinkRecord result = smt.apply(record);
-      assertThat(result.value()).isInstanceOf(Struct.class);
-      Struct value = (Struct) result.value();
-
-      assertThat(value.get("account_id")).isEqualTo(1L);
-
-      Struct cdcMetadata = value.getStruct("_cdc");
-      assertThat(cdcMetadata.get("op")).isEqualTo("U");
-      assertThat(cdcMetadata.get("source")).isEqualTo("schema.tbl");
-      assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
-      assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
-
-      // Verify txid has been added
-      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
-
-      // Verify source_ts_us is added and correct
-      Schema tsUsSchema = value.schema().field("source_ts_us").schema();
-      assertThat(tsUsSchema).isEqualTo(Timestamp.SCHEMA);
-      assertThat(value.get("source_ts_us")).isEqualTo(new java.util.Date(tsUs / 1000L));
+      // Verify source_ts_ms is added and correct
+      Schema tsmsSchema = value.schema().field("source_ts_ms").schema();
+      assertThat(tsmsSchema).isEqualTo(Timestamp.SCHEMA);
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -293,8 +218,10 @@ public class DebeziumTransformTest {
       // Verify txid has been extracted from gtid
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_us has not been added
-      assertThat(value.schema().field("source_ts_us")).isNull();
+      // Verify source_ts_ms is added and correct
+      Schema tsmsSchema = value.schema().field("source_ts_ms").schema();
+      assertThat(tsmsSchema).isEqualTo(Timestamp.SCHEMA);
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -322,8 +249,10 @@ public class DebeziumTransformTest {
       // Verify txid has been set to 0 as gtid is null when snapshotting
       assertThat(cdcMetadata.get("txid")).isEqualTo(0L);
 
-      // Verify source_ts_us has not been added
-      assertThat(value.schema().field("source_ts_us")).isNull();
+      // Verify source_ts_ms is added and correct
+      Schema tsmsSchema = value.schema().field("source_ts_ms").schema();
+      assertThat(tsmsSchema).isEqualTo(Timestamp.SCHEMA);
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -345,7 +274,7 @@ public class DebeziumTransformTest {
 
     return ImmutableMap.of(
         "op", operation,
-        "ts_ms", System.currentTimeMillis(),
+        "ts_ms", TS_MS,
         "source", source,
         "before", data,
         "after", data);
@@ -369,34 +298,10 @@ public class DebeziumTransformTest {
 
     return new Struct(VALUE_SCHEMA)
         .put("op", operation)
-        .put("ts_ms", System.currentTimeMillis())
+        .put("ts_ms", TS_MS)
         .put("source", source)
         .put("before", data)
         .put("after", data);
   }
 
-  private Struct createDebeziumEventStructWithTsUs(String operation, String connector, String snapshot, Long txid,
-      String gtid, Long tsUs) {
-    Struct source = new Struct(SOURCE_SCHEMA)
-        .put("db", "db")
-        .put("schema", "schema")
-        .put("table", "tbl")
-        .put("connector", connector)
-        .put("snapshot", snapshot)
-        .put("txId", txid)
-        .put("gtid", gtid);
-
-    Struct data = new Struct(ROW_SCHEMA)
-        .put("account_id", 1L)
-        .put("balance", BigDecimal.valueOf(100))
-        .put("last_updated", Instant.now().toString());
-
-    return new Struct(VALUE_SCHEMA_WITH_TS_US)
-        .put("op", operation)
-        .put("ts_ms", System.currentTimeMillis())
-        .put("ts_us", tsUs)
-        .put("source", source)
-        .put("before", data)
-        .put("after", data);
-  }
 }
