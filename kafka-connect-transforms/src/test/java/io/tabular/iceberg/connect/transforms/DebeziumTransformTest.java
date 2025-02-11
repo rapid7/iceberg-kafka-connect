@@ -230,7 +230,7 @@ public class DebeziumTransformTest {
     try (DebeziumTransform<SinkRecord> smt = new DebeziumTransform<>()) {
       smt.configure(ImmutableMap.of("cdc.target.pattern", "{db}_x.{table}_x"));
 
-      Struct event = createDebeziumEventStruct("u", "mysql", "true", null, null);
+      Struct event = createDebeziumEventStruct("u", "mysql", "first_in_data_collection", null, null);
       Struct key = new Struct(KEY_SCHEMA).put("account_id", 1L);
       SinkRecord record = new SinkRecord("topic", 0, KEY_SCHEMA, key, VALUE_SCHEMA, event, 0);
 

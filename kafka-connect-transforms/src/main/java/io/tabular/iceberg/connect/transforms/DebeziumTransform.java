@@ -219,7 +219,7 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
       }
     } else if ("mysql".equals(connector)) {
       // Check if in snapshot mode first
-      if (source.schema().field("snapshot") != null && "true".equals(source.getString("snapshot"))) {
+      if (source.schema().field("snapshot") != null && !"false".equals(source.getString("snapshot"))) {
         // Return 0 as gtid is null when snapshotting
         return 0L;
       }
@@ -271,7 +271,7 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
       }
     } else if ("mysql".equals(connector)) {
       // Check if in snapshot mode first
-      if (source.containsKey("snapshot") && "true".equals(source.get("snapshot").toString())) {
+      if (source.containsKey("snapshot") && !"false".equals(source.get("snapshot").toString())) {
         // Return 0 as gtid is null when snapshotting
         return 0L;
       }
