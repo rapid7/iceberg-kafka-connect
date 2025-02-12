@@ -11,7 +11,7 @@ info:
   x-cortex-domain-parents:
     - tag: data-platform-transport
   x-cortex-groups:
-    - exposure:external-ship
+    - exposure:opensource
 openapi: 3.0.0
 servers:
   - url: "/"
