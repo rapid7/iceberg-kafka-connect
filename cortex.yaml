@@ -1,0 +1,15 @@
+---
+info:
+  title: iceberg-kafka-connect
+  description: A sink connector for writing data from Kafka into Iceberg tables.
+  x-cortex-git:
+    github:
+      alias: r7org
+      repository: rapid7/iceberg-kafka-connect
+  x-cortex-tag: iceberg-kafka-connect
+  x-cortex-type: service
+  x-cortex-domain-parents:
+    - tag: data-platform-transport
+openapi: 3.0.0
+servers:
+  - url: "/"
