@@ -14,7 +14,7 @@ configurations {
     resolutionStrategy.force "io.airlift:aircompressor:0.27"
     resolutionStrategy.eachDependency { details ->
       if (details.requested.group == "io.netty") {
-        details.useVersion "4.1.115.Final"
+        details.useVersion "4.1.118.Final"
       }
     }
   }
