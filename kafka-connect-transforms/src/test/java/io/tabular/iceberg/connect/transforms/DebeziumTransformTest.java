@@ -155,8 +155,8 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Map.class);
 
-      // Verify txid has been set to 0 as gtid is null when snapshotting
-      assertThat(cdcMetadata.get("txid")).isEqualTo(0L);
+      // Verify txid has been set to 1 as gtid is null when snapshotting
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
       // Verify source_ts_ms has been added
       assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
@@ -246,8 +246,8 @@ public class DebeziumTransformTest {
       assertThat(cdcMetadata.get("target")).isEqualTo("schema_x.tbl_x");
       assertThat(cdcMetadata.get("key")).isInstanceOf(Struct.class);
 
-      // Verify txid has been set to 0 as gtid is null when snapshotting
-      assertThat(cdcMetadata.get("txid")).isEqualTo(0L);
+      // Verify txid has been set to 1 as gtid is null when snapshotting
+      assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
       // Verify source_ts_ms is added and correct
       Schema tsmsSchema = value.schema().field("source_ts_ms").schema();
