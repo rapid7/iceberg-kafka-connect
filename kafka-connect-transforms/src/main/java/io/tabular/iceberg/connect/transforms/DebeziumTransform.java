@@ -44,14 +44,13 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
   private static final String DB_PLACEHOLDER = "{db}";
   private static final String TABLE_PLACEHOLDER = "{table}";
 
-  public static final ConfigDef CONFIG_DEF =
-      new ConfigDef()
-          .define(
-              CDC_TARGET_PATTERN,
-              ConfigDef.Type.STRING,
-              null,
-              Importance.MEDIUM,
-              "Pattern to use for setting the CDC target field value.");
+  public static final ConfigDef CONFIG_DEF = new ConfigDef()
+      .define(
+          CDC_TARGET_PATTERN,
+          ConfigDef.Type.STRING,
+          null,
+          Importance.MEDIUM,
+          "Pattern to use for setting the CDC target field value.");
 
   private String cdcTargetPattern;
 
@@ -103,6 +102,10 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
     // create the new value
     Schema newValueSchema = makeUpdatedSchema(payloadSchema, cdcSchema);
+    if (value.schema().field("ts_ms") != null) {
+      newValueSchema = makeUpdatedSchema(newValueSchema, CustomFieldConstants.SOURCE_TIMESTAMP_MS, Timestamp.SCHEMA);
+    }
+
     Struct newValue = new Struct(newValueSchema);
 
     for (Field field : payloadSchema.fields()) {
@@ -110,8 +113,8 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.getStruct("ts_us") != null) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, new java.util.Date(value.getInt64("ts_us")));
+    if (value.schema().field("ts_ms") != null) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(value.getInt64("ts_ms")));
     }
 
     return record.newRecord(
@@ -159,8 +162,9 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     Map<String, Object> newValue = Maps.newHashMap((Map<String, Object>) payload);
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.containsKey("ts_us")) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, value.get("ts_us"));
+    if (value.containsKey("ts_ms")) {
+      long tsms = ((Number) value.get("ts_ms")).longValue();
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(tsms));
     }
 
     return record.newRecord(
@@ -187,7 +191,6 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
   private void setTableAndTargetFromSourceStruct(Struct source, Struct cdcMetadata) {
     String db;
-    Long txid = null;
 
     if (source.schema().field("schema") != null) {
       // prefer schema if present, e.g. for Postgres
@@ -198,20 +201,49 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
     String table = source.getString("table");
 
-    if (source.schema().field("txId") != null) {
-      txid = source.getInt64("txId");
-    }
+    // Extract transaction ID based on connector type
+    Long txid = extractTransactionIdFromSourceStruct(source);
 
     cdcMetadata.put(CdcConstants.COL_SOURCE, db + "." + table);
     cdcMetadata.put(CdcConstants.COL_TARGET, target(db, table));
     cdcMetadata.put(CdcConstants.COL_TXID, txid);
   }
 
+  private Long extractTransactionIdFromSourceStruct(Struct source) {
+    String connector = source.getString("connector");
+
+    if ("postgresql".equals(connector)) {
+      // Check for txId field for postgresql
+      if (source.schema().field("txId") != null) {
+        return source.getInt64("txId");
+      }
+    } else if ("mysql".equals(connector)) {
+      // Check if in snapshot mode first
+      if (source.schema().field("snapshot") != null && !"false".equals(source.getString("snapshot"))) {
+        // Return 1 as gtid is null when snapshotting
+        return 1L;
+      }
+
+      // Not in snapshot mode, check for gtid field for mysql
+      if (source.schema().field("gtid") != null) {
+        String gtid = source.getString("gtid");
+        // Split gtid into uuid and txid
+        String[] gtidSections = gtid.split(":");
+        // Return txid section
+        if (gtidSections.length == 2) {
+          return Long.valueOf(gtidSections[1]);
+        }
+      }
+    } else {
+      LOG.warn("Transactional consistency is not currently supported for connector type: {}", connector);
+    }
+    return null;
+  }
+
   private void setTableAndTargetFromSourceMap(Object source, Map<String, Object> cdcMetadata) {
     Map<String, Object> map = Requirements.requireMap(source, "Debezium transform");
 
     String db;
-    Long txid = null;
     if (map.containsKey("schema")) {
       // prefer schema if present, e.g. for Postgres
       db = map.get("schema").toString();
@@ -220,13 +252,44 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     String table = map.get("table").toString();
 
-    if (map.containsKey("txId")) {
-      txid = Long.valueOf(map.get("txId").toString());
-    }
+    // Extract transaction ID based on connector type
+    Long txid = extractTransactionIdFromSourceMap(map);
 
     cdcMetadata.put(CdcConstants.COL_SOURCE, db + "." + table);
     cdcMetadata.put(CdcConstants.COL_TARGET, target(db, table));
     cdcMetadata.put(CdcConstants.COL_TXID, txid);
+  }
+
+  private Long extractTransactionIdFromSourceMap(Map<String, Object> source) {
+    String connector = source.get("connector").toString();
+
+    if ("postgresql".equals(connector)) {
+      // Check for txId field for postgresql
+      if (source.containsKey("txId")) {
+        // Return txid
+        return Long.valueOf(source.get("txId").toString());
+      }
+    } else if ("mysql".equals(connector)) {
+      // Check if in snapshot mode first
+      if (source.containsKey("snapshot") && !"false".equals(source.get("snapshot").toString())) {
+        // Return 1 as gtid is null when snapshotting
+        return 1L;
+      }
+
+      // Not in snapshot mode, check for gtid field for mysql
+      if (source.containsKey("gtid")) {
+        String gtid = source.get("gtid").toString();
+        // Split gtid into uuid and txid
+        String[] gtidSections = gtid.split(":");
+        // Return txid section
+        if (gtidSections.length == 2) {
+          return Long.valueOf(gtidSections[1]);
+        }
+      }
+    } else {
+      LOG.warn("Transactional consistency is not currently supported for connector type: {}", connector);
+    }
+    return null;
   }
 
   private String target(String db, String table) {
@@ -236,14 +299,13 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
   }
 
   private Schema makeCdcSchema(Schema keySchema) {
-    SchemaBuilder builder =
-        SchemaBuilder.struct()
-            .field(CdcConstants.COL_OP, Schema.STRING_SCHEMA)
-            .field(CdcConstants.COL_TS, Timestamp.SCHEMA)
-            .field(CdcConstants.COL_OFFSET, Schema.OPTIONAL_INT64_SCHEMA)
-            .field(CdcConstants.COL_SOURCE, Schema.STRING_SCHEMA)
-            .field(CdcConstants.COL_TARGET, Schema.STRING_SCHEMA)
-            .field(CdcConstants.COL_TXID, Schema.OPTIONAL_INT64_SCHEMA);
+    SchemaBuilder builder = SchemaBuilder.struct()
+        .field(CdcConstants.COL_OP, Schema.STRING_SCHEMA)
+        .field(CdcConstants.COL_TS, Timestamp.SCHEMA)
+        .field(CdcConstants.COL_OFFSET, Schema.OPTIONAL_INT64_SCHEMA)
+        .field(CdcConstants.COL_SOURCE, Schema.STRING_SCHEMA)
+        .field(CdcConstants.COL_TARGET, Schema.STRING_SCHEMA)
+        .field(CdcConstants.COL_TXID, Schema.OPTIONAL_INT64_SCHEMA);
 
     if (keySchema != null) {
       builder.field(CdcConstants.COL_KEY, keySchema);
@@ -252,16 +314,20 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     return builder.build();
   }
 
-  private Schema makeUpdatedSchema(Schema schema, Schema cdcSchema) {
+  private Schema makeUpdatedSchema(Schema schema, String fieldName, Schema fieldSchema) {
     SchemaBuilder builder = SchemaUtil.copySchemaBasics(schema, SchemaBuilder.struct());
 
     for (Field field : schema.fields()) {
       builder.field(field.name(), field.schema());
     }
 
-    builder.field(CdcConstants.COL_CDC, cdcSchema);
+    builder.field(fieldName, fieldSchema);
 
     return builder.build();
+  }
+
+  private Schema makeUpdatedSchema(Schema schema, Schema cdcSchema) {
+    return makeUpdatedSchema(schema, CdcConstants.COL_CDC, cdcSchema);
   }
 
   @Override
@@ -270,5 +336,6 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
   }
 
   @Override
-  public void close() {}
+  public void close() {
+  }
 }

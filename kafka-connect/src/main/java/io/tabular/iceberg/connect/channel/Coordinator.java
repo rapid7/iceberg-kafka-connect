@@ -153,6 +153,7 @@ public class Coordinator extends Channel implements AutoCloseable {
    * <p>
    * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
    * We are using 2^31 (2,147,483,648) to detect the wraparound correctly.
+   * TODO (2471-02-04): MySQL transaction ID limit needs addressing, threshold it 2^63 -1 and there is no wraparound
    *
    * @param currentTxId current transaction ID
    * @param newTxId    new transaction ID
@@ -325,7 +326,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   private void addTxDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
-    if (txIdValidThrough > 0 && maxTxId > 0) {
+    if (txIdValidThrough > -1 && maxTxId > 0) {
       operation.set(TXID_VALID_THROUGH_PROP, Long.toString(txIdValidThrough));
       operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
       LOG.info("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
