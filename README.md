@@ -18,6 +18,15 @@ zip archive yourself by running:
 ```
 The zip archive will be found under `./kafka-connect-runtime/build/distributions`.
 
+# Creating A Release
+The following command create a new tag in Github and the zip archive mentioned above with a matching version:
+```bash
+./gradlew -xtest clean build final
+```
+Go to the tag in Github and create a release from it, then attach both zip files to the release as 
+artefacts and add a changelog to the description.
+
+
 # Configuration
 
 | Property                                   | Description                                                                                                      |
