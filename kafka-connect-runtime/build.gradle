@@ -2,6 +2,35 @@ plugins {
   id "distribution"
 }
 
+task downloadIcebergJars {
+  doLast {
+    def downloadDir = file("$buildDir/libs")
+    downloadDir.mkdirs()
+
+    def urls = [
+            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1744812999/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar",
+            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1744812999/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar"
+    ]
+
+    urls.each { urlString ->
+      def url = new URL(urlString)
+      def fileName = urlString.tokenize("/")[-1]
+      def destination = new File(downloadDir, fileName)
+
+      if (!destination.exists()) {
+        println "Downloading: ${fileName}"
+        destination.withOutputStream { out ->
+          url.openStream().withStream { inStream ->
+            out << inStream
+          }
+        }
+      } else {
+        println "${fileName} already exists."
+      }
+    }
+  }
+}
+
 configurations {
   hive {
     extendsFrom runtimeClasspath
@@ -12,6 +41,7 @@ configurations {
     resolutionStrategy.force "org.apache.commons:commons-compress:1.26.0"
     resolutionStrategy.force "org.apache.hadoop.thirdparty:hadoop-shaded-guava:1.1.1-tabular"
     resolutionStrategy.force "io.airlift:aircompressor:0.27"
+    resolutionStrategy.force "org.apache.parquet:parquet-avro:1.15.1"
     resolutionStrategy.eachDependency { details ->
       if (details.requested.group == "io.netty") {
         details.useVersion "4.1.118.Final"
@@ -68,7 +98,12 @@ dependencies {
   }
 
   testImplementation libs.bundles.iceberg
-  testImplementation libs.iceberg.aws.bundle
+  testImplementation files("$buildDir/libs/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar")
+  testImplementation files("$buildDir/libs/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar")
+
+  implementation files("$buildDir/libs/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar")
+  implementation files("$buildDir/libs/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar")
+
   testImplementation libs.bundles.jackson
   testImplementation libs.bundles.kafka.connect
 
@@ -150,5 +185,7 @@ installHiveDist.dependsOn processResources
 
 // build the install before test so it can be installed into kafka connect
 test.dependsOn installDist
+
+tasks.compileJava.dependsOn downloadIcebergJars
 
 assemble.dependsOn distZip, hiveDistZip
