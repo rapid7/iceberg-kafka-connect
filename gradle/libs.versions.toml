@@ -23,9 +23,7 @@ hadoop-common = { module = "org.apache.hadoop:hadoop-common", version.ref = "had
 hive-metastore = { module = "org.apache.hive:hive-metastore", version.ref = "hive-ver" }
 iceberg-api = { module = "org.apache.iceberg:iceberg-api", version.ref = "iceberg-ver" }
 iceberg-aws = { module = "org.apache.iceberg:iceberg-aws", version.ref = "iceberg-ver" }
-iceberg-aws-bundle = { module = "org.apache.iceberg:iceberg-aws-bundle", version.ref = "iceberg-ver" }
 iceberg-azure = { module = "org.apache.iceberg:iceberg-azure", version.ref = "iceberg-ver" }
-iceberg-azure-bundle = { module = "org.apache.iceberg:iceberg-azure-bundle", version.ref = "iceberg-ver" }
 iceberg-common = { module = "org.apache.iceberg:iceberg-common", version.ref = "iceberg-ver" }
 iceberg-core = { module = "org.apache.iceberg:iceberg-core", version.ref = "iceberg-ver" }
 iceberg-data = { module = "org.apache.iceberg:iceberg-data", version.ref = "iceberg-ver" }
@@ -62,7 +60,7 @@ palantir-gradle = "com.palantir.baseline:gradle-baseline-java:4.42.0"
 
 [bundles]
 iceberg = ["iceberg-api", "iceberg-common", "iceberg-core", "iceberg-data", "iceberg-guava", "iceberg-orc", "iceberg-parquet", "iceberg-kafka-connect-events"]
-iceberg-ext = ["iceberg-aws", "iceberg-aws-bundle", "iceberg-azure", "iceberg-azure-bundle", "iceberg-gcp","iceberg-gcp-bundle", "iceberg-nessie"]
+iceberg-ext = ["iceberg-aws", "iceberg-azure", "iceberg-gcp","iceberg-gcp-bundle", "iceberg-nessie"]
 jackson = ["jackson-core", "jackson-databind"]
 kafka-connect = ["kafka-clients", "kafka-connect-api", "kafka-connect-json", "kafka-connect-transforms"]
 
