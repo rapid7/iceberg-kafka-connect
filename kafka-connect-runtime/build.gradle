@@ -8,8 +8,8 @@ task downloadIcebergJars {
     downloadDir.mkdirs()
 
     def urls = [
-            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1744812999/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar",
-            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1744812999/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar"
+            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1746026749/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar",
+            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1746026749/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar"
     ]
 
     urls.each { urlString ->
