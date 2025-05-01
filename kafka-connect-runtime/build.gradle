@@ -69,8 +69,7 @@ dependencies {
     exclude group: "org.eclipse.jetty"
   }
   runtimeOnly libs.bundles.iceberg.ext
-  runtimeOnly files("$buildDir/libs/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar")
-  runtimeOnly files("$buildDir/libs/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar")
+  runtimeOnly files("$buildDir/libs/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar", "$buildDir/libs/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar")
 
   hive libs.iceberg.hive.metastore
   hive(libs.hive.metastore) {
