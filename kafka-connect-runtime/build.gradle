@@ -8,8 +8,8 @@ task downloadIcebergJars {
     downloadDir.mkdirs()
 
     def urls = [
-            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1744812999/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar",
-            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1744812999/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar"
+            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1746026749/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar",
+            "https://artifacts.bos.rapid7.com/artifactory/releases/transport/iceberg-fips/1.6.x/1746026749/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar"
     ]
 
     urls.each { urlString ->
@@ -32,6 +32,7 @@ task downloadIcebergJars {
 }
 
 configurations {
+  customJars
   hive {
     extendsFrom runtimeClasspath
   }
@@ -98,11 +99,9 @@ dependencies {
   }
 
   testImplementation libs.bundles.iceberg
+
   testImplementation files("$buildDir/libs/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar")
   testImplementation files("$buildDir/libs/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar")
-
-  implementation files("$buildDir/libs/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar")
-  implementation files("$buildDir/libs/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar")
 
   testImplementation libs.bundles.jackson
   testImplementation libs.bundles.kafka.connect
@@ -125,6 +124,30 @@ processResources {
   }
 }
 
+// Add a task to verify the custom JARs exist
+task verifyCustomJars {
+  dependsOn downloadIcebergJars
+  doLast {
+    def awsBundle = file("$buildDir/libs/iceberg-aws-bundle-1.7.0-SNAPSHOT.jar")
+    def azureBundle = file("$buildDir/libs/iceberg-azure-bundle-1.7.0-SNAPSHOT.jar")
+
+    if (!awsBundle.exists()) {
+      throw new GradleException("Missing iceberg-aws-bundle-1.7.0-SNAPSHOT.jar in ${awsBundle.absolutePath}")
+    }
+
+    if (!azureBundle.exists()) {
+      throw new GradleException("Missing iceberg-azure-bundle-1.7.0-SNAPSHOT.jar in ${azureBundle.absolutePath}")
+    }
+
+    println "Custom JARs exist:"
+    println "- ${awsBundle.absolutePath}"
+    println "- ${azureBundle.absolutePath}"
+  }
+}
+
+// Make sure downloadIcebergJars runs after clean and before other tasks
+downloadIcebergJars.mustRunAfter clean
+
 distributions {
   main {
     contents {
@@ -133,6 +156,11 @@ distributions {
       }
       into("lib/") {
         from configurations.runtimeClasspath
+        // Add custom JARs explicitly to the distribution
+        from fileTree(dir: "$buildDir/libs", include: [
+                "iceberg-aws-bundle-1.7.0-SNAPSHOT.jar",
+                "iceberg-azure-bundle-1.7.0-SNAPSHOT.jar"
+        ])
       }
       into("doc/") {
         from "$rootDir/LICENSE"
@@ -176,16 +204,20 @@ publishing {
 tasks.jar.enabled = false
 
 tasks.distTar.enabled = false
-distZip.dependsOn processResources
-installDist.dependsOn processResources
-
 tasks.hiveDistTar.enabled = false
-hiveDistZip.dependsOn processResources
-installHiveDist.dependsOn processResources
+
+tasks.distZip.dependsOn processResources, verifyCustomJars
+tasks.hiveDistZip.dependsOn processResources, verifyCustomJars
+tasks.installDist.dependsOn processResources, verifyCustomJars
+tasks.installHiveDist.dependsOn processResources, verifyCustomJars
+
+// Ensure the verifyCustomJars task depends on downloadIcebergJars
+verifyCustomJars.dependsOn downloadIcebergJars
+
+// make sure compileJava also depends on downloadIcebergJars
+compileJava.dependsOn downloadIcebergJars
 
 // build the install before test so it can be installed into kafka connect
 test.dependsOn installDist
-
-tasks.compileJava.dependsOn downloadIcebergJars
 
 assemble.dependsOn distZip, hiveDistZip
