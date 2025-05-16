@@ -7,7 +7,15 @@ dependencies {
   implementation libs.iceberg.common
   implementation libs.iceberg.guava
   implementation libs.avro
-  implementation group: 'org.apache.iceberg', name: 'iceberg-kafka-connect-events', version: '1.5.1'
+  implementation libs.aircompressor
+  implementation libs.jackson.core
+  implementation libs.commonsCompress
+  implementation (group: 'org.apache.iceberg', name: 'iceberg-kafka-connect-events', version: '1.5.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'io.airlift', module: 'aircompressor'
+    exclude group: 'com.fasterxml.jackson-core', module: 'jackson-core'
+    exclude group: 'org.apache.commons', module: 'commons-compress'
+  }
 
   testImplementation libs.junit.api
   testRuntimeOnly libs.junit.engine
@@ -17,7 +25,16 @@ dependencies {
 
   testFixturesImplementation libs.iceberg.common
   testFixturesImplementation libs.iceberg.core
-  testFixturesImplementation libs.avro
+  testFixturesImplementation libs.avro 
+  testFixturesImplementation libs.aircompressor 
+  testFixturesImplementation libs.jackson.core 
+  testFixturesImplementation libs.commonsCompress 
+  testFixturesImplementation (group: 'org.apache.iceberg', name: 'iceberg-kafka-connect-events', version: '1.5.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'io.airlift', module: 'aircompressor'
+    exclude group: 'com.fasterxml.jackson-core', module: 'jackson-core'
+    exclude group: 'org.apache.commons', module: 'commons-compress'
+  }
 }
 
 publishing {

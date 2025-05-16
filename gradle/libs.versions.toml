@@ -1,13 +1,15 @@
 [versions]
 assertj-ver = "3.24.2"
 avro-ver = "1.11.4"
+aircompressor = "0.27"
 awaitility-ver = "4.2.0"
 bson-ver = "4.11.0"
+commonsCompress = "1.26.0"
 hadoop-ver = "3.4.1"
 hive-ver = "2.3.9"
 http-client-ver = "5.2.1"
 iceberg-ver = "1.6.1"
-jackson-ver = "2.14.2"
+jackson-ver = "2.15.0-rc1"
 junit-ver = "5.10.0"
 kafka-ver = "3.7.1"
 slf4j-ver = "1.7.36"
@@ -17,6 +19,8 @@ testcontainers-ver = "1.17.6"
 
 [libraries]
 avro = { module = "org.apache.avro:avro", version.ref = "avro-ver" }
+aircompressor = { module = "io.airlift:aircompressor", version.ref = "aircompressor" }
+commonsCompress = { module = "org.apache.commons:commons-compress", version.ref = "commonsCompress" }
 bson = { module = "org.mongodb:bson", version.ref = "bson-ver"}
 hadoop-client = { module = "org.apache.hadoop:hadoop-client", version.ref = "hadoop-ver" }
 hadoop-common = { module = "org.apache.hadoop:hadoop-common", version.ref = "hadoop-ver" }
