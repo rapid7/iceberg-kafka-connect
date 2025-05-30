@@ -4,6 +4,15 @@ dependencies {
   implementation libs.bundles.jackson
   implementation libs.avro
   implementation libs.slf4j
+  implementation libs.commonsBeanutils
+  implementation libs.logback.classic
+  implementation libs.logback.core
+  implementation libs.guava
+  implementation libs.netty.common
+  implementation libs.netty.handler
+  implementation libs.netty.codec.http
+  implementation libs.jetty.server
+
   compileOnly libs.bundles.kafka.connect
 
   testImplementation(testFixtures(project(":iceberg-kafka-connect-events")))
