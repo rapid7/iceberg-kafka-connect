@@ -69,6 +69,24 @@ dependencies {
     exclude group: "org.apache.hadoop.thirdparty", module: "hadoop-shaded-protobuf_3_7"
     exclude group: "org.eclipse.jetty"
   }
+  implementation libs.commonsBeanutils
+  implementation libs.protobuf.java
+  implementation libs.derby
+  implementation libs.jetty.http
+  implementation libs.jetty.server
+  implementation libs.logback.classic
+  implementation libs.logback.core
+  implementation libs.jackson.core
+  implementation libs.guava
+  implementation (group: 'org.apache.iceberg', name: 'iceberg-data', version: '1.6.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+  }
+
+  implementation (group: 'org.apache.iceberg', name: 'iceberg-parquet', version: '1.6.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+  }
+
+
   runtimeOnly libs.bundles.iceberg.ext
 
   hive libs.iceberg.hive.metastore

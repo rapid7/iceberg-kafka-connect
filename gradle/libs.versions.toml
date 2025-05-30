@@ -4,14 +4,21 @@ avro-ver = "1.11.4"
 aircompressor = "0.27"
 awaitility-ver = "4.2.0"
 bson-ver = "4.11.0"
+commonsBeanutils-ver = "1.11.0"
 commonsCompress = "1.26.0"
+derby-ver = "10.17.1.0"
+guava-ver = "32.0.0-jre"
 hadoop-ver = "3.4.1"
-hive-ver = "2.3.9"
+hive-ver = "4.0.0"
 http-client-ver = "5.2.1"
 iceberg-ver = "1.6.1"
 jackson-ver = "2.15.0-rc1"
+jetty-ver = "9.4.57.v20241219"
 junit-ver = "5.10.0"
-kafka-ver = "3.7.1"
+kafka-ver = "3.7.2"
+logback-ver = "1.5.13"
+netty-ver = "4.1.118.Final"
+protobuf-java-ver = "3.25.5"
 slf4j-ver = "1.7.36"
 testcontainers-ver = "1.17.6"
 
@@ -20,8 +27,11 @@ testcontainers-ver = "1.17.6"
 [libraries]
 avro = { module = "org.apache.avro:avro", version.ref = "avro-ver" }
 aircompressor = { module = "io.airlift:aircompressor", version.ref = "aircompressor" }
+commonsBeanutils = { module = "commons-beanutils:commons-beanutils", version.ref = "commonsBeanutils-ver" }
 commonsCompress = { module = "org.apache.commons:commons-compress", version.ref = "commonsCompress" }
+derby = { module = "org.apache.derby:derby", version.ref = "derby-ver" }
 bson = { module = "org.mongodb:bson", version.ref = "bson-ver"}
+guava = { module = "com.google.guava:guava", version.ref = "guava-ver" }
 hadoop-client = { module = "org.apache.hadoop:hadoop-client", version.ref = "hadoop-ver" }
 hadoop-common = { module = "org.apache.hadoop:hadoop-common", version.ref = "hadoop-ver" }
 hive-metastore = { module = "org.apache.hive:hive-metastore", version.ref = "hive-ver" }
@@ -41,11 +51,19 @@ iceberg-orc = { module = "org.apache.iceberg:iceberg-orc", version.ref = "iceber
 iceberg-parquet = { module = "org.apache.iceberg:iceberg-parquet", version.ref = "iceberg-ver" }
 jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson-ver" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson-ver" }
+jetty-http = { module = "org.eclipse.jetty:jetty-http", version.ref = "jetty-ver" }
+jetty-server = { module = "org.eclipse.jetty:jetty-server", version.ref = "jetty-ver" }
 kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafka-ver" }
 kafka-connect-api = { module = "org.apache.kafka:connect-api", version.ref = "kafka-ver" }
 kafka-connect-json = { module = "org.apache.kafka:connect-json", version.ref = "kafka-ver" }
 kafka-connect-transforms = { module = "org.apache.kafka:connect-transforms", version.ref = "kafka-ver" }
+netty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty-ver" }
+netty-common = { module = "io.netty:netty-common", version.ref = "netty-ver" }
+netty-handler = { module = "io.netty:netty-handler", version.ref = "netty-ver" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf-java-ver" }
 slf4j = { module = "org.slf4j:slf4j-api", version.ref = "slf4j-ver" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback-ver" }
+logback-core = { module = "ch.qos.logback:logback-core", version.ref = "logback-ver" }
 
 # test dependencies
 assertj = { module = "org.assertj:assertj-core", version.ref = "assertj-ver" }
