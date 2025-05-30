@@ -78,12 +78,15 @@ dependencies {
   implementation libs.logback.core
   implementation libs.jackson.core
   implementation libs.guava
+  implementation libs.parquet.avro
   implementation (group: 'org.apache.iceberg', name: 'iceberg-data', version: '1.6.1') {
     exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.parquet', module: 'avro'
   }
 
   implementation (group: 'org.apache.iceberg', name: 'iceberg-parquet', version: '1.6.1') {
     exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.parquet', module: 'avro'
   }
 
 

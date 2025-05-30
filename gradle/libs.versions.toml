@@ -18,6 +18,7 @@ junit-ver = "5.10.0"
 kafka-ver = "3.7.2"
 logback-ver = "1.5.13"
 netty-ver = "4.1.118.Final"
+parquet-avro-ver = "1.15.2"
 protobuf-java-ver = "3.25.5"
 slf4j-ver = "1.7.36"
 testcontainers-ver = "1.17.6"
@@ -60,6 +61,7 @@ kafka-connect-transforms = { module = "org.apache.kafka:connect-transforms", ver
 netty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty-ver" }
 netty-common = { module = "io.netty:netty-common", version.ref = "netty-ver" }
 netty-handler = { module = "io.netty:netty-handler", version.ref = "netty-ver" }
+parquet-avro = { module = "org.apache.parquet:parquet-avro", version.ref = "parquet-avro-ver" }
 protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf-java-ver" }
 slf4j = { module = "org.slf4j:slf4j-api", version.ref = "slf4j-ver" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback-ver" }
