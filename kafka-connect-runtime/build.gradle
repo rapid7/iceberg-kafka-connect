@@ -78,6 +78,12 @@ dependencies {
   implementation libs.logback.core
   implementation libs.jackson.core
   implementation libs.guava
+  implementation libs.zookeeper
+  implementation libs.netty.common
+  implementation libs.netty.handler
+  implementation libs.netty.codec.http
+  implementation libs.libthrift
+  implementation libs.ant
   implementation libs.parquet.avro
   implementation (group: 'org.apache.iceberg', name: 'iceberg-data', version: '1.6.1') {
     exclude group: 'org.apache.avro', module: 'avro'
@@ -147,6 +153,12 @@ dependencies {
   testImplementation libs.logback.core
   testImplementation libs.jackson.core
   testImplementation libs.guava
+  testImplementation libs.zookeeper
+  testImplementation libs.netty.common
+  testImplementation libs.netty.handler
+  testImplementation libs.netty.codec.http
+  testImplementation libs.libthrift
+  testImplementation libs.ant
   testImplementation libs.parquet.avro
   testImplementation (group: 'org.apache.iceberg', name: 'iceberg-data', version: '1.6.1') {
     exclude group: 'org.apache.avro', module: 'avro'
