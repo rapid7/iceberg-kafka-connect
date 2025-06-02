@@ -4,6 +4,15 @@ dependencies {
   implementation libs.bundles.jackson
   implementation libs.avro
   implementation libs.slf4j
+  implementation libs.commonsBeanutils
+  implementation libs.logback.classic
+  implementation libs.logback.core
+  implementation libs.guava
+  implementation libs.netty.common
+  implementation libs.netty.handler
+  implementation libs.netty.codec.http
+  implementation libs.jetty.server
+
   compileOnly libs.bundles.kafka.connect
 
   testImplementation(testFixtures(project(":iceberg-kafka-connect-events")))
@@ -17,6 +26,15 @@ dependencies {
   testImplementation libs.assertj
 
   testImplementation 'ch.qos.logback:logback-classic:1.5.3'
+
+  testImplementation libs.commonsBeanutils
+  testImplementation libs.logback.classic
+  testImplementation libs.logback.core
+  testImplementation libs.guava
+  testImplementation libs.netty.common
+  testImplementation libs.netty.handler
+  testImplementation libs.netty.codec.http
+  testImplementation libs.jetty.server
 }
 
 configurations {
