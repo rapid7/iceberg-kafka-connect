@@ -12,6 +12,16 @@ dependencies {
   implementation libs.netty.handler
   implementation libs.netty.codec.http
   implementation libs.jetty.server
+  implementation libs.parquet.avro
+  implementation (group: 'org.apache.iceberg', name: 'iceberg-data', version: '1.6.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.parquet', module: 'avro'
+  }
+
+  implementation (group: 'org.apache.iceberg', name: 'iceberg-parquet', version: '1.6.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.parquet', module: 'avro'
+  }
 
   compileOnly libs.bundles.kafka.connect
 
@@ -35,6 +45,16 @@ dependencies {
   testImplementation libs.netty.handler
   testImplementation libs.netty.codec.http
   testImplementation libs.jetty.server
+  testImplementation libs.parquet.avro
+  testImplementation (group: 'org.apache.iceberg', name: 'iceberg-data', version: '1.6.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.parquet', module: 'avro'
+  }
+
+  testImplementation (group: 'org.apache.iceberg', name: 'iceberg-parquet', version: '1.6.1') {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.parquet', module: 'avro'
+  }
 }
 
 configurations {
