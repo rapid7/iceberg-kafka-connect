@@ -26,6 +26,15 @@ dependencies {
   testImplementation libs.assertj
 
   testImplementation 'ch.qos.logback:logback-classic:1.5.3'
+
+  testImplementation libs.commonsBeanutils
+  testImplementation libs.logback.classic
+  testImplementation libs.logback.core
+  testImplementation libs.guava
+  testImplementation libs.netty.common
+  testImplementation libs.netty.handler
+  testImplementation libs.netty.codec.http
+  testImplementation libs.jetty.server
 }
 
 configurations {
