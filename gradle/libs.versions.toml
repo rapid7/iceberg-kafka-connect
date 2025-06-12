@@ -24,7 +24,7 @@ protobuf-java-ver = "3.25.5"
 slf4j-ver = "1.7.36"
 testcontainers-ver = "1.17.6"
 libthrift-ver = "0.15.0"
-zookeeper-ver = "3.8.3"
+zookeeper-ver = "3.8.4"
 
 
 [libraries]
