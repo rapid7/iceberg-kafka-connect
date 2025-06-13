@@ -267,8 +267,6 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
-      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
@@ -289,7 +287,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
-            addTxDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
+            addTxDataToSnapshot(appendOp);
           }
 
           appendOp.commit();
@@ -304,7 +302,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (vtts != null) {
           deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
         }
-        addTxDataToSnapshot(deltaOp, txIdValidThrough, maxTxId);
+        addTxDataToSnapshot(deltaOp);
         dataFiles.forEach(deltaOp::addRows);
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
@@ -330,7 +328,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
   }
 
-  private void addTxDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
+  private void addTxDataToSnapshot(SnapshotUpdate<?> operation) {
     Map<Integer, Long> committedPartitions = highestTxIdPerPartition().entrySet().stream()
             .filter(entry -> commitState.getReadyBuffer().stream()
                     .flatMap(event -> event.assignments().stream())
@@ -338,10 +336,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
     long validThrough = Utilities.calculateTxIdValidThrough(committedPartitions);
-    long maxTx = committedPartitions.values().stream()
-            .mapToLong(Long::longValue)
-            .max()
-            .orElse(0L);
+    long maxTx = Utilities.getMaxTxId(committedPartitions);
 
     if (validThrough > -1 && maxTx > 0) {
       operation.set(TXID_VALID_THROUGH_PROP, Long.toString(validThrough));

@@ -327,7 +327,7 @@ public class Utilities {
   }
 
   public static Long getMaxTxId(Map<?, Long> highestTxIdPerPartition) {
-    return highestTxIdPerPartition.values().stream().max(Long::compareTo).orElse(0L);
+    return highestTxIdPerPartition.values().stream().mapToLong(Long::longValue).max().orElse(0L);
   }
 
   private Utilities() {}
