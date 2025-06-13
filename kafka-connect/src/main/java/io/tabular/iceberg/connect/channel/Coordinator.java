@@ -31,6 +31,7 @@ import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
@@ -329,11 +330,19 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   private void addTxDataToSnapshot(SnapshotUpdate<?> operation) {
+    Set<Integer> readyPartitions = commitState.getReadyBuffer().stream()
+            .flatMap(event -> event.assignments().stream())
+            .map(offset -> offset.partition())
+            .collect(Collectors.toSet());
+
+    LOG.info("JACK: Ready partitions for commit: {}", readyPartitions);
+    LOG.info("JACK: Current highestTxIdPerPartition: {}", highestTxIdPerPartition());
+
     Map<Integer, Long> committedPartitions = highestTxIdPerPartition().entrySet().stream()
-            .filter(entry -> commitState.getReadyBuffer().stream()
-                    .flatMap(event -> event.assignments().stream())
-                    .anyMatch(offset -> offset.partition() == entry.getKey()))
+            .filter(entry -> readyPartitions.contains(entry.getKey()))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+    LOG.info("JACK: Committed partitions for snapshot: {}", committedPartitions);
 
     long validThrough = Utilities.calculateTxIdValidThrough(committedPartitions);
     long maxTx = Utilities.getMaxTxId(committedPartitions);
