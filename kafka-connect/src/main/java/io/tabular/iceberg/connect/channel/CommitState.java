@@ -115,6 +115,10 @@ public class CommitState {
     return false;
   }
 
+  public List<TransactionDataComplete> getReadyBuffer() {
+    return readyBuffer;
+  }
+
   public boolean isCommitReady(int expectedPartitionCount) {
     if (!isCommitInProgress()) {
       return false;

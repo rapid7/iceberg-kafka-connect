@@ -130,9 +130,11 @@ public class Coordinator extends Channel implements AutoCloseable {
           TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
           List<TopicPartitionTransaction> txIds = payload.txIds();
           LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
-          txIds.forEach(
-                  txId -> highestTxIdPerPartition().put(txId.partition(),
-                          compareTxIds(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
+          if (commitState.isCommitInProgress() && payload.commitId().equals(commitState.currentCommitId())) {
+            txIds.forEach(
+                    txId -> highestTxIdPerPartition().put(txId.partition(),
+                            compareTxIds(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
+          }
         }
         if (commitState.isCommitReady(totalPartitionCount)) {
           commit(false);
@@ -180,6 +182,9 @@ public class Coordinator extends Channel implements AutoCloseable {
       LOG.warn("Commit failed, will try again next cycle", e);
     } finally {
       commitState.endCurrentCommit();
+      if (highestTxIdPerPartition().size() >= totalPartitionCount || partialCommit) {
+        highestTxIdPerPartition().clear();
+      }
     }
   }
 
@@ -326,12 +331,24 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   private void addTxDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
-    if (txIdValidThrough > -1 && maxTxId > 0) {
-      operation.set(TXID_VALID_THROUGH_PROP, Long.toString(txIdValidThrough));
-      operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
-      LOG.info("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
+    Map<Integer, Long> committedPartitions = highestTxIdPerPartition().entrySet().stream()
+            .filter(entry -> commitState.getReadyBuffer().stream()
+                    .flatMap(event -> event.assignments().stream())
+                    .anyMatch(offset -> offset.partition() == entry.getKey()))
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+    long validThrough = Utilities.calculateTxIdValidThrough(committedPartitions);
+    long maxTx = committedPartitions.values().stream()
+            .mapToLong(Long::longValue)
+            .max()
+            .orElse(0L);
+
+    if (validThrough > -1 && maxTx > 0) {
+      operation.set(TXID_VALID_THROUGH_PROP, Long.toString(validThrough));
+      operation.set(TXID_MAX_PROP, Long.toString(maxTx));
+      LOG.info("Added transaction data to snapshot: validThrough={}, max={}", validThrough, maxTx);
     } else {
-        LOG.warn("No transaction data to add to snapshot");
+      LOG.warn("No transaction data to add to snapshot");
     }
   }
 

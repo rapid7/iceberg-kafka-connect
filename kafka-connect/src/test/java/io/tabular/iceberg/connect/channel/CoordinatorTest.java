@@ -138,7 +138,7 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(
         Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
     Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
-    Assertions.assertEquals(104L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
+    Assertions.assertEquals(100L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
   }
 
   @Test
@@ -319,7 +319,7 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(
             Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
     Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
-    Assertions.assertEquals(102L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
+    Assertions.assertEquals(100L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
   }
 
   /**
@@ -472,9 +472,38 @@ public class CoordinatorTest extends ChannelTestBase {
             99L,
             Long.valueOf(secondSnapshot.summary().get(TX_ID_VALID_THROUGH_PROP)),
             "The lowest txId processed by all workers -1 should be the txId valid through");
-    Assertions.assertEquals(110L,
+    Assertions.assertEquals(100L,
             Long.valueOf(secondSnapshot.summary().get(MAX_TX_ID__PROP)),
             "Max txId processed by all workers should be the max txId");
+  }
+
+  @Test
+  public void testTxIdValidThroughWithIncompleteTransactionData() {
+    // Only partition 1 is actually committed, but partition 2 has a higher txId
+    Map<TopicPartition, Long> txIdPerPartition = ImmutableMap.of(
+            new TopicPartition("topic", 1), 99L,
+            new TopicPartition("topic", 2), 200L // not present in the commit
+    );
+
+    OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
+    UUID commitId = coordinatorTxIdValidThroughTest(
+            ImmutableList.of(EventTestUtil.createDataFile()),
+            ImmutableList.of(),
+            ts,
+            txIdPerPartition
+    );
+
+    table.refresh();
+    List<Snapshot> snapshots = ImmutableList.copyOf(table.snapshots());
+    Assertions.assertEquals(1, snapshots.size());
+
+    Snapshot snapshot = snapshots.get(0);
+    Map<String, String> summary = snapshot.summary();
+
+    Assertions.assertEquals("98", summary.get(TX_ID_VALID_THROUGH_PROP),
+            "Transaction ID valid through should be calculated only from committed partitions");
+    Assertions.assertEquals("99", summary.get(MAX_TX_ID__PROP),
+            "Max transaction ID should be the highest among committed partitions");
   }
 
   private void assertCommitTable(int idx, UUID commitId, OffsetDateTime ts) {
