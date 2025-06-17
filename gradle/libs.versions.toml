@@ -14,7 +14,8 @@ hive-ver = "2.3.9"
 http-client-ver = "5.2.1"
 iceberg-ver = "1.6.1"
 jackson-ver = "2.15.0-rc1"
-jetty-ver = "9.4.57.v20241219"
+jetty-server-ver = "9.4.57.v20241219"
+jetty-http-ver = "12.0.12"
 junit-ver = "5.10.0"
 kafka-ver = "3.7.2"
 logback-ver = "1.5.13"
@@ -55,8 +56,8 @@ iceberg-orc = { module = "org.apache.iceberg:iceberg-orc", version.ref = "iceber
 iceberg-parquet = { module = "org.apache.iceberg:iceberg-parquet", version.ref = "iceberg-ver" }
 jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson-ver" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson-ver" }
-jetty-http = { module = "org.eclipse.jetty:jetty-http", version.ref = "jetty-ver" }
-jetty-server = { module = "org.eclipse.jetty:jetty-server", version.ref = "jetty-ver" }
+jetty-http = { module = "org.eclipse.jetty:jetty-http", version.ref = "jetty-http-ver" }
+jetty-server = { module = "org.eclipse.jetty:jetty-server", version.ref = "jetty-server-ver" }
 kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafka-ver" }
 kafka-connect-api = { module = "org.apache.kafka:connect-api", version.ref = "kafka-ver" }
 kafka-connect-json = { module = "org.apache.kafka:connect-json", version.ref = "kafka-ver" }
