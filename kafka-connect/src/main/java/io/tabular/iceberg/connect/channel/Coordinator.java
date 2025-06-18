@@ -32,6 +32,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
@@ -78,6 +79,8 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final String snapshotOffsetsProp;
   private final ExecutorService exec;
   private final CommitState commitState;
+
+  private final Map<Integer, Long> lastSuccessfulWatermarks = new ConcurrentHashMap<>();
 
   public Coordinator(
       Catalog catalog,
@@ -179,8 +182,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     } catch (Exception e) {
       LOG.warn("Commit failed, will try again next cycle", e);
     } finally {
-      // FIX: Always clear responses and end the current commit, even after a failure.
-      // This prevents stale data from being carried into the next commit cycle.
+      // This ensures that stale data from a failed commit is always discarded.
       commitState.clearResponses();
       commitState.endCurrentCommit();
     }
@@ -191,33 +193,61 @@ public class Coordinator extends Channel implements AutoCloseable {
     String offsetsJson = offsetsJson();
     OffsetDateTime vtts = commitState.vtts(partialCommit);
 
-    // FIX #1: Calculate transaction boundaries once before parallel execution to prevent race conditions.
-    final long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
-    final long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
+    // FIX: Create a temporary, forward-looking watermark map for this commit,
+    // starting with the last known-good state to ensure consistency.
+    Map<Integer, Long> nextWatermarks = new ConcurrentHashMap<>(lastSuccessfulWatermarks);
 
+    // Identify all partitions that have data in this specific commit batch.
+    commitMap.values().stream()
+            .flatMap(List::stream)
+            .map(Envelope::partition)
+            .distinct()
+            .forEach(
+                    partitionId -> {
+                      // For each active partition, update its watermark to the newest value we've received.
+                      Long latestTxId = highestTxIdPerPartition().get(partitionId);
+                      if (latestTxId != null) {
+                        nextWatermarks.put(partitionId, latestTxId);
+                      }
+                    });
+
+    // FIX: Safely calculate transaction boundaries from the consistent, temporary map.
+    // A valid low-watermark can only be calculated if we have a value for every partition.
+    long txIdValidThrough = -1L;
+    if (nextWatermarks.size() == this.totalPartitionCount) {
+      txIdValidThrough = Utilities.calculateTxIdValidThrough(nextWatermarks);
+    } else {
+      LOG.warn("Cannot calculate txid-valid-through, not all partitions have reported watermarks. Known partitions: {}/{}", nextWatermarks.size(), this.totalPartitionCount);
+    }
+
+    final long maxTxId = Utilities.getMaxTxId(nextWatermarks);
+
+    // The commit logic now uses these safely calculated values.
     Tasks.foreach(commitMap.entrySet())
             .executeWith(exec)
             .stopOnFailure()
             .run(
                     entry -> {
-                      // Pass the pre-calculated, consistent values to the commit method.
                       commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts, txIdValidThrough, maxTxId);
                     });
 
     // This section is only reached if all table commits succeed.
     commitConsumerOffsets();
 
-    // FIX #2: The clearResponses() call is removed from here and moved to the commit() method's finally block.
+    // FIX: On success, promote the temporary watermarks to be the new last-known-good state.
+    this.lastSuccessfulWatermarks.clear();
+    this.lastSuccessfulWatermarks.putAll(nextWatermarks);
 
     Event event =
             new Event(config.controlGroupId(), new CommitComplete(commitState.currentCommitId(), vtts));
     send(event);
 
     LOG.info(
-            "Commit {} complete, committed to {} table(s), vtts {}",
+            "Commit {} complete, committed to {} table(s), vtts {}, txid-valid-through {}",
             commitState.currentCommitId(),
             commitMap.size(),
-            vtts);
+            vtts,
+            txIdValidThrough);
   }
 
   private String offsetsJson() {
