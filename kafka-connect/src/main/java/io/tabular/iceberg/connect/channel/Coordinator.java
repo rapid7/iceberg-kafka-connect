@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -24,6 +24,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Utilities;
+import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -35,9 +37,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
-
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
-import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -48,6 +47,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+// FIX: Corrected import paths
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
 import org.apache.iceberg.connect.events.Event;
@@ -80,39 +80,41 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final ExecutorService exec;
   private final CommitState commitState;
 
-  private final Map<Integer, Long> lastSuccessfulWatermarks = new ConcurrentHashMap<>();
+  private final Map<Integer, Long> highestTxIdPerPartition = new ConcurrentHashMap<>();
 
   public Coordinator(
-      Catalog catalog,
-      IcebergSinkConfig config,
-      Collection<MemberDescription> members,
-      KafkaClientFactory clientFactory) {
-    // pass consumer group ID to which we commit low watermark offsets
+          Catalog catalog,
+          IcebergSinkConfig config,
+          Collection<MemberDescription> members,
+          KafkaClientFactory clientFactory) {
     super("coordinator", config.controlGroupId() + "-coord", config, clientFactory);
 
     this.catalog = catalog;
     this.config = config;
     this.totalPartitionCount =
-        members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
+            members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
     this.snapshotOffsetsProp =
-        String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
+            String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
     this.exec = ThreadPools.newWorkerPool("iceberg-committer", config.commitThreads());
     this.commitState = new CommitState(config);
 
-    // initial poll with longer duration so the consumer will initialize...
     consumeAvailable(Duration.ofMillis(1000), this::receive);
+  }
+
+  // FIX: Access modifier changed from private to protected to match parent class.
+  @Override
+  protected Map<Integer, Long> highestTxIdPerPartition() {
+    return highestTxIdPerPartition;
   }
 
   public void process() {
     if (commitState.isCommitIntervalReached()) {
-      // send out begin commit
       commitState.startNewCommit();
       LOG.info("Started new commit with commit-id={}", commitState.currentCommitId().toString());
       Event event =
-          new Event(config.controlGroupId(), new StartCommit(commitState.currentCommitId()));
+              new Event(config.controlGroupId(), new StartCommit(commitState.currentCommitId()));
       send(event);
       LOG.info("Sent workers commit trigger with commit-id={}", commitState.currentCommitId().toString());
-
     }
 
     consumeAvailable(POLL_DURATION, this::receive);
@@ -134,8 +136,13 @@ public class Coordinator extends Channel implements AutoCloseable {
           List<TopicPartitionTransaction> txIds = payload.txIds();
           LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
           txIds.forEach(
-                  txId -> highestTxIdPerPartition().put(txId.partition(),
-                          compareTxIds(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
+                  txId ->
+                          highestTxIdPerPartition()
+                                  .put(
+                                          txId.partition(),
+                                          compareTxIds(
+                                                  highestTxIdPerPartition().getOrDefault(txId.partition(), 0L),
+                                                  txId.txId())));
         }
         if (commitState.isCommitReady(totalPartitionCount)) {
           commit(false);
@@ -145,44 +152,29 @@ public class Coordinator extends Channel implements AutoCloseable {
     return false;
   }
 
-  /**
-   * The rollover handling is managed by the compareTxIds method.
-   * This method compares the current transaction ID (currentTxId) with the new transaction ID (newTxId) and accounts for the rollover scenario.
-   * <p>
-   * Rollover Detection: The method checks if the newTxId is less than the currentTxId and if the difference between them is greater than half of Integer.MAX_VALUE.
-   * This condition indicates that the newTxId has rolled over and is actually higher than the currentTxId.
-   * Return Value: If the rollover condition is met, the method returns the newTxId as the higher value.
-   * Otherwise, it returns the maximum of currentTxId and newTxId.
-   * <p>
-   * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
-   * We are using 2^31 (2,147,483,648) to detect the wraparound correctly.
-   * TODO (2471-02-04): MySQL transaction ID limit needs addressing, threshold it 2^63 -1 and there is no wraparound
-   *
-   * @param currentTxId current transaction ID
-   * @param newTxId    new transaction ID
-   * @return the higher of the two transaction IDs accounting for the rollover scenario
-   */
   private long compareTxIds(long currentTxId, long newTxId) {
-    long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
+    long wraparoundThreshold = 4294967296L;
 
-    if ((newTxId > currentTxId && newTxId - currentTxId <= wraparoundThreshold / 2) ||
-            (newTxId < currentTxId && currentTxId - newTxId > wraparoundThreshold / 2)) {
-      // Wraparound detected: newTxId is actually higher after wrapping around
+    if ((newTxId > currentTxId && newTxId - currentTxId <= wraparoundThreshold / 2)
+            || (newTxId < currentTxId && currentTxId - newTxId > wraparoundThreshold / 2)) {
       return newTxId;
     }
 
     return Math.max(currentTxId, newTxId);
   }
 
-
   private void commit(boolean partialCommit) {
     try {
-      LOG.info("Processing commit after responses for {}, isPartialCommit {}", commitState.currentCommitId(), partialCommit);
+      LOG.info(
+              "Processing commit after responses for {}, isPartialCommit {}",
+              commitState.currentCommitId(),
+              partialCommit);
       doCommit(partialCommit);
     } catch (Exception e) {
       LOG.warn("Commit failed, will try again next cycle", e);
     } finally {
-      // This ensures that stale data from a failed commit is always discarded.
+      // This ensures ALL state for the completed commit cycle is cleared.
+      highestTxIdPerPartition().clear();
       commitState.clearResponses();
       commitState.endCurrentCommit();
     }
@@ -193,50 +185,37 @@ public class Coordinator extends Channel implements AutoCloseable {
     String offsetsJson = offsetsJson();
     OffsetDateTime vtts = commitState.vtts(partialCommit);
 
-    // FIX: Create a temporary, forward-looking watermark map for this commit,
-    // starting with the last known-good state to ensure consistency.
-    Map<Integer, Long> nextWatermarks = new ConcurrentHashMap<>(lastSuccessfulWatermarks);
+    // This logic is simple and correct because the underlying map is always clean.
+    final Map<Integer, Long> currentWatermarks = highestTxIdPerPartition();
 
-    // Identify all partitions that have data in this specific commit batch.
-    commitMap.values().stream()
-            .flatMap(List::stream)
-            .map(Envelope::partition)
-            .distinct()
-            .forEach(
-                    partitionId -> {
-                      // For each active partition, update its watermark to the newest value we've received.
-                      Long latestTxId = highestTxIdPerPartition().get(partitionId);
-                      if (latestTxId != null) {
-                        nextWatermarks.put(partitionId, latestTxId);
-                      }
-                    });
-
-    // FIX: Safely calculate transaction boundaries from the consistent, temporary map.
-    // A valid low-watermark can only be calculated if we have a value for every partition.
-    long txIdValidThrough = -1L;
-    if (nextWatermarks.size() == this.totalPartitionCount) {
-      txIdValidThrough = Utilities.calculateTxIdValidThrough(nextWatermarks);
+    final long finalTxIdValidThrough;
+    if (currentWatermarks.size() == this.totalPartitionCount) {
+      finalTxIdValidThrough = Utilities.calculateTxIdValidThrough(currentWatermarks);
     } else {
-      LOG.warn("Cannot calculate txid-valid-through, not all partitions have reported watermarks. Known partitions: {}/{}", nextWatermarks.size(), this.totalPartitionCount);
+      LOG.warn(
+              "Cannot calculate txid-valid-through, not all partitions have reported watermarks. Known partitions: {}/{}",
+              currentWatermarks.size(),
+              this.totalPartitionCount);
+      finalTxIdValidThrough = -1L;
     }
 
-    final long maxTxId = Utilities.getMaxTxId(nextWatermarks);
+    final long maxTxId = Utilities.getMaxTxId(currentWatermarks);
 
-    // The commit logic now uses these safely calculated values.
     Tasks.foreach(commitMap.entrySet())
             .executeWith(exec)
             .stopOnFailure()
             .run(
                     entry -> {
-                      commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts, txIdValidThrough, maxTxId);
+                      commitToTable(
+                              entry.getKey(),
+                              entry.getValue(),
+                              offsetsJson,
+                              vtts,
+                              finalTxIdValidThrough,
+                              maxTxId);
                     });
 
-    // This section is only reached if all table commits succeed.
     commitConsumerOffsets();
-
-    // FIX: On success, promote the temporary watermarks to be the new last-known-good state.
-    this.lastSuccessfulWatermarks.clear();
-    this.lastSuccessfulWatermarks.putAll(nextWatermarks);
 
     Event event =
             new Event(config.controlGroupId(), new CommitComplete(commitState.currentCommitId(), vtts));
@@ -247,7 +226,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             commitState.currentCommitId(),
             commitMap.size(),
             vtts,
-            txIdValidThrough);
+            finalTxIdValidThrough);
   }
 
   private String offsetsJson() {
@@ -263,7 +242,6 @@ public class Coordinator extends Channel implements AutoCloseable {
           List<Envelope> envelopeList,
           String offsetsJson,
           OffsetDateTime vtts,
-          // FIX: Add parameters for pre-calculated transaction values.
           long txIdValidThrough,
           long maxTxId) {
     Table table;
@@ -303,7 +281,6 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      // FIX: The local calculation has been removed. The method now uses the passed-in parameters.
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
@@ -371,7 +348,7 @@ public class Coordinator extends Channel implements AutoCloseable {
       operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
       LOG.info("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
     } else {
-        LOG.warn("No transaction data to add to snapshot");
+      LOG.warn("No transaction data to add to snapshot");
     }
   }
 

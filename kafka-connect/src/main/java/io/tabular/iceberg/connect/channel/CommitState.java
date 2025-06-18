@@ -116,6 +116,10 @@ public class CommitState {
   }
 
   public boolean isCommitReady(int expectedPartitionCount) {
+    if (expectedPartitionCount == 0) {
+      return false;
+    }
+
     if (!isCommitInProgress()) {
       return false;
     }
