@@ -115,37 +115,42 @@ public class CommitState {
     return false;
   }
 
-  public boolean isCommitReady(int expectedPartitionCount) {
-    if (expectedPartitionCount == 0) {
-      return false;
-    }
+// In CommitState.java
 
-    if (!isCommitInProgress()) {
-      return false;
-    }
-
-    int receivedPartitionCount =
-        readyBuffer.stream()
-            .filter(payload -> payload.commitId().equals(currentCommitId))
-            .mapToInt(payload -> payload.assignments().size())
-            .sum();
-
-    if (receivedPartitionCount >= expectedPartitionCount) {
-      LOG.info(
-          "Commit {} ready, received responses for all {} partitions",
-          currentCommitId,
-          receivedPartitionCount);
-      return true;
-    }
-
-    LOG.info(
-        "Commit {} not ready, received responses for {} of {} partitions, waiting for more",
-        currentCommitId,
-        receivedPartitionCount,
-        expectedPartitionCount);
-
+public boolean isCommitReady(int expectedPartitionCount) {
+  if (expectedPartitionCount == 0) {
     return false;
   }
+  if (!isCommitInProgress()) {
+    return false;
+  }
+
+  // FIX: Correctly count the number of *unique* partitions that have sent a
+  // DATA_COMPLETE signal for the current commit ID.
+  long distinctReadyPartitions =
+      readyBuffer.stream()
+          .filter(payload -> payload.commitId().equals(currentCommitId))
+          .flatMap(payload -> payload.assignments().stream())
+          .map(TopicPartitionOffset::partition)
+          .distinct()
+          .count();
+
+  if (distinctReadyPartitions >= expectedPartitionCount) {
+    LOG.info(
+        "Commit {} ready, received responses for all {} partitions",
+        currentCommitId,
+        distinctReadyPartitions);
+    return true;
+  }
+
+  LOG.info(
+      "Commit {} not ready, received responses for {} of {} partitions, waiting for more",
+      currentCommitId,
+      distinctReadyPartitions,
+      expectedPartitionCount);
+
+  return false;
+}
 
   public Map<TableIdentifier, List<Envelope>> tableCommitMap() {
     return commitBuffer.stream()
