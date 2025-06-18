@@ -177,7 +177,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                       offset == null ? null : offset.timestamp());
                 })
             .collect(toList());
-
+    LOG.info("Committer preparing to send event. Aggregated transactions: {}", committable.txIdsByTopicPartition());
     List<TopicPartitionTransaction> txIds = committable.txIdsByTopicPartition().entrySet().stream()
             .map(entry -> new TopicPartitionTransaction(entry.getKey().topic(), entry.getKey().partition(), entry.getValue()))
             .collect(toList());
