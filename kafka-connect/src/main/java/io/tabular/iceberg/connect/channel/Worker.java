@@ -102,9 +102,10 @@ class Worker implements Writer, AutoCloseable {
     Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
     if (txId != null) {
       LOG.debug("Found transaction id {} in record", txId);
-      sourceTxIds.put(
+      sourceTxIds.merge(
           new TopicPartition(record.topic(), record.kafkaPartition()),
-          txId);
+          txId,
+          (oldValue, newValue) -> newValue > oldValue ? newValue : oldValue);
     }
 
     if (config.dynamicTablesEnabled()) {

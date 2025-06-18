@@ -134,7 +134,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (envelope.event().payload() instanceof TransactionDataComplete) {
           TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
           List<TopicPartitionTransaction> txIds = payload.txIds();
-          LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
+          LOG.info("RYAN: Received transaction data complete event with {} txIds", txIds.size());
           txIds.forEach(
                   txId ->
                           highestTxIdPerPartition()
