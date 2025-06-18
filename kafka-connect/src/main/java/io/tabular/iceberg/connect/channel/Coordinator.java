@@ -174,42 +174,50 @@ public class Coordinator extends Channel implements AutoCloseable {
 
   private void commit(boolean partialCommit) {
     try {
-      LOG.info("Processing commit after responses for {}, isPartialCommit {}",commitState.currentCommitId(), partialCommit);
+      LOG.info("Processing commit after responses for {}, isPartialCommit {}", commitState.currentCommitId(), partialCommit);
       doCommit(partialCommit);
     } catch (Exception e) {
       LOG.warn("Commit failed, will try again next cycle", e);
     } finally {
+      // FIX: Always clear responses and end the current commit, even after a failure.
+      // This prevents stale data from being carried into the next commit cycle.
+      commitState.clearResponses();
       commitState.endCurrentCommit();
     }
   }
 
   private void doCommit(boolean partialCommit) {
     Map<TableIdentifier, List<Envelope>> commitMap = commitState.tableCommitMap();
-
     String offsetsJson = offsetsJson();
     OffsetDateTime vtts = commitState.vtts(partialCommit);
 
-    Tasks.foreach(commitMap.entrySet())
-        .executeWith(exec)
-        .stopOnFailure()
-        .run(
-            entry -> {
-              commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts);
-            });
+    // FIX #1: Calculate transaction boundaries once before parallel execution to prevent race conditions.
+    final long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
+    final long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
 
-    // we should only get here if all tables committed successfully...
+    Tasks.foreach(commitMap.entrySet())
+            .executeWith(exec)
+            .stopOnFailure()
+            .run(
+                    entry -> {
+                      // Pass the pre-calculated, consistent values to the commit method.
+                      commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts, txIdValidThrough, maxTxId);
+                    });
+
+    // This section is only reached if all table commits succeed.
     commitConsumerOffsets();
-    commitState.clearResponses();
+
+    // FIX #2: The clearResponses() call is removed from here and moved to the commit() method's finally block.
 
     Event event =
-        new Event(config.controlGroupId(), new CommitComplete(commitState.currentCommitId(), vtts));
+            new Event(config.controlGroupId(), new CommitComplete(commitState.currentCommitId(), vtts));
     send(event);
 
     LOG.info(
-        "Commit {} complete, committed to {} table(s), vtts {}",
-        commitState.currentCommitId(),
-        commitMap.size(),
-        vtts);
+            "Commit {} complete, committed to {} table(s), vtts {}",
+            commitState.currentCommitId(),
+            commitMap.size(),
+            vtts);
   }
 
   private String offsetsJson() {
@@ -221,10 +229,13 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   private void commitToTable(
-      TableIdentifier tableIdentifier,
-      List<Envelope> envelopeList,
-      String offsetsJson,
-      OffsetDateTime vtts) {
+          TableIdentifier tableIdentifier,
+          List<Envelope> envelopeList,
+          String offsetsJson,
+          OffsetDateTime vtts,
+          // FIX: Add parameters for pre-calculated transaction values.
+          long txIdValidThrough,
+          long maxTxId) {
     Table table;
     try {
       table = catalog.loadTable(tableIdentifier);
@@ -238,38 +249,37 @@ public class Coordinator extends Channel implements AutoCloseable {
     Map<Integer, Long> committedOffsets = lastCommittedOffsetsForTable(table, branch.orElse(null));
 
     List<Envelope> filteredEnvelopeList =
-        envelopeList.stream()
-            .filter(
-                envelope -> {
-                  Long minOffset = committedOffsets.get(envelope.partition());
-                  return minOffset == null || envelope.offset() >= minOffset;
-                })
-            .collect(toList());
+            envelopeList.stream()
+                    .filter(
+                            envelope -> {
+                              Long minOffset = committedOffsets.get(envelope.partition());
+                              return minOffset == null || envelope.offset() >= minOffset;
+                            })
+                    .collect(toList());
 
     List<DataFile> dataFiles =
-        Deduplicated.dataFiles(commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
-            .stream()
-            .filter(dataFile -> dataFile.recordCount() > 0)
-            .collect(toList());
+            Deduplicated.dataFiles(commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
+                    .stream()
+                    .filter(dataFile -> dataFile.recordCount() > 0)
+                    .collect(toList());
 
     List<DeleteFile> deleteFiles =
-        Deduplicated.deleteFiles(
-                commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
-            .stream()
-            .filter(deleteFile -> deleteFile.recordCount() > 0)
-            .collect(toList());
+            Deduplicated.deleteFiles(
+                            commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
+                    .stream()
+                    .filter(deleteFile -> deleteFile.recordCount() > 0)
+                    .collect(toList());
 
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
-      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
+      // FIX: The local calculation has been removed. The method now uses the passed-in parameters.
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
         Map<Integer, List<DataFile>> filesBySpec =
-            dataFiles.stream()
-                .collect(Collectors.groupingBy(DataFile::specId, Collectors.toList()));
+                dataFiles.stream()
+                        .collect(Collectors.groupingBy(DataFile::specId, Collectors.toList()));
 
         List<List<DataFile>> list = Lists.newArrayList(filesBySpec.values());
         int lastIdx = list.size() - 1;
@@ -307,21 +317,21 @@ public class Coordinator extends Channel implements AutoCloseable {
 
       Long snapshotId = latestSnapshot(table, branch.orElse(null)).snapshotId();
       Event event =
-          new Event(
-              config.controlGroupId(),
-              new CommitToTable(
-                  commitState.currentCommitId(),
-                  TableReference.of(config.catalogName(), tableIdentifier),
-                  snapshotId,
-                  vtts));
+              new Event(
+                      config.controlGroupId(),
+                      new CommitToTable(
+                              commitState.currentCommitId(),
+                              TableReference.of(config.catalogName(), tableIdentifier),
+                              snapshotId,
+                              vtts));
       send(event);
 
       LOG.info(
-          "Commit complete to table {}, snapshot {}, commit ID {}, vtts {}",
-          tableIdentifier,
-          snapshotId,
-          commitState.currentCommitId(),
-          vtts);
+              "Commit complete to table {}, snapshot {}, commit ID {}, vtts {}",
+              tableIdentifier,
+              snapshotId,
+              commitState.currentCommitId(),
+              vtts);
     }
   }
 
