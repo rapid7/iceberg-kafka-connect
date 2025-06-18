@@ -136,19 +136,34 @@ public class Utilities {
     }
   }
 
+// In Utilities.java - PLEASE REPLACE THE METHOD WITH THIS VERSION
+
   public static Long extractTxIdFromRecordValue(Object recordValue, String fieldName) {
     if (recordValue == null) {
       return null;
     }
-      String recordStr = recordValue.toString();
-      String fieldValue = extractFieldValue(recordStr, fieldName);
-      if (fieldValue != null) {
-        try {
-          return Long.parseLong(fieldValue);
-        } catch (NumberFormatException e) {
-          LOG.error("Failed to parse fieldName value: {}", fieldValue, e);
-        }
+    String recordStr = recordValue.toString();
+
+    // ========= ESSENTIAL DEBUGGING CODE ==========
+    LOG.info("Attempting to extract TXID. Searching for field name: '{}'", fieldName);
+    LOG.info("Record value converted to string: {}", recordStr);
+
+    String fieldValue = extractFieldValue(recordStr, fieldName);
+
+    if (fieldValue == null) {
+      LOG.warn("TXID field '{}' was NOT FOUND in the record string.", fieldName);
+    } else {
+      LOG.info("TXID field '{}' was FOUND with value: '{}'", fieldName, fieldValue);
+    }
+    // ============================================
+
+    if (fieldValue != null) {
+      try {
+        return Long.parseLong(fieldValue);
+      } catch (NumberFormatException e) {
+        LOG.error("Failed to parse fieldName value: {}", fieldValue, e);
       }
+    }
     return null;
   }
 
