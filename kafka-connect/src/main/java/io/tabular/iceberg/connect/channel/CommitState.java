@@ -115,8 +115,6 @@ public class CommitState {
     return false;
   }
 
-// In CommitState.java
-
 public boolean isCommitReady(int expectedPartitionCount) {
   if (expectedPartitionCount == 0) {
     return false;
@@ -125,8 +123,6 @@ public boolean isCommitReady(int expectedPartitionCount) {
     return false;
   }
 
-  // FIX: Correctly count the number of *unique* partitions that have sent a
-  // DATA_COMPLETE signal for the current commit ID.
   long distinctReadyPartitions =
       readyBuffer.stream()
           .filter(payload -> payload.commitId().equals(currentCommitId))

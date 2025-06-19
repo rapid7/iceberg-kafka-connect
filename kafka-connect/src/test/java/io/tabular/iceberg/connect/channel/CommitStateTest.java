@@ -28,7 +28,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.Payload;
@@ -42,36 +41,49 @@ public class CommitStateTest {
     return OffsetDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneOffset.UTC);
   }
 
-  @Test
-  public void testIsCommitReady() {
-    TopicPartitionOffset tp = mock(TopicPartitionOffset.class);
-    TopicPartitionTransaction tpt = mock(TopicPartitionTransaction.class);
+// In CommitStateTest.java
+
+@Test
+public void testIsCommitReady() {
+    // FIX: Create distinct mock objects for each partition to correctly
+    // simulate a real-world scenario.
+    TopicPartitionOffset tp0 = mock(TopicPartitionOffset.class);
+    when(tp0.partition()).thenReturn(0);
+
+    TopicPartitionOffset tp1 = mock(TopicPartitionOffset.class);
+    when(tp1.partition()).thenReturn(1);
+
+    TopicPartitionOffset tp2 = mock(TopicPartitionOffset.class);
+    when(tp2.partition()).thenReturn(2);
 
     CommitState commitState = new CommitState(mock(IcebergSinkConfig.class));
     commitState.startNewCommit();
 
+    // This payload indicates that partitions 0 and 1 are ready.
     TransactionDataComplete payload1 = mock(TransactionDataComplete.class);
     when(payload1.commitId()).thenReturn(commitState.currentCommitId());
-    when(payload1.assignments()).thenReturn(ImmutableList.of(tp, tp));
-    when(payload1.txIds()).thenReturn(ImmutableList.of(tpt, tpt));
+    when(payload1.assignments()).thenReturn(ImmutableList.of(tp0, tp1));
 
+    // This payload indicates that partition 2 is ready.
     TransactionDataComplete payload2 = mock(TransactionDataComplete.class);
     when(payload2.commitId()).thenReturn(commitState.currentCommitId());
-    when(payload2.assignments()).thenReturn(ImmutableList.of(tp));
-    when(payload2.txIds()).thenReturn(ImmutableList.of(tpt));
+    when(payload2.assignments()).thenReturn(ImmutableList.of(tp2));
 
+    // This payload has the wrong commit ID and should be correctly ignored.
     TransactionDataComplete payload3 = mock(TransactionDataComplete.class);
     when(payload3.commitId()).thenReturn(UUID.randomUUID());
-    when(payload3.assignments()).thenReturn(ImmutableList.of(tp));
-    when(payload3.txIds()).thenReturn(ImmutableList.of(tpt));
+    when(payload3.assignments()).thenReturn(ImmutableList.of(mock(TopicPartitionOffset.class)));
 
     commitState.addReady(wrapInEnvelope(payload1));
     commitState.addReady(wrapInEnvelope(payload2));
     commitState.addReady(wrapInEnvelope(payload3));
 
+    // With the corrected logic, the number of distinct ready partitions is 3 (0, 1, and 2).
+    // This assertion will now pass.
     assertThat(commitState.isCommitReady(3)).isTrue();
+    // The count is 3, so checking for 4 should correctly be false.
     assertThat(commitState.isCommitReady(4)).isFalse();
-  }
+}
 
   @Test
   public void testGetVtts() {
