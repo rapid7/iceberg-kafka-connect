@@ -218,6 +218,7 @@ public class Coordinator extends Channel implements AutoCloseable {
           String offsetsJson,
           OffsetDateTime vtts) {
     Table table;
+    LOG.info("TRACE: Committing to table {}, commit ID {}, vtts {}", tableIdentifier, commitState.currentCommitId(), vtts);
     try {
       table = catalog.loadTable(tableIdentifier);
     } catch (NoSuchTableException e) {
