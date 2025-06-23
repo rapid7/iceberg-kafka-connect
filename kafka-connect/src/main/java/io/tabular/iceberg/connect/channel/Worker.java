@@ -84,6 +84,9 @@ class Worker implements Writer, AutoCloseable {
     });
     // --- END FIX ---
 
+    LOG.debug("TRACE: Committable committed table partition txIds {}", tableTxIds);
+    LOG.debug("TRACE: Committable committable txIds {}", txIdsByTable);
+
     writers.clear();
     sourceOffsets.clear();
     txIdsByTable.clear();

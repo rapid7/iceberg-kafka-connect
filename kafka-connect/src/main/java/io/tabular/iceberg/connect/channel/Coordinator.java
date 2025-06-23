@@ -143,13 +143,13 @@ public class Coordinator extends Channel implements AutoCloseable {
           tableTxIds.forEach(txId -> {
             TableIdentifier tableIdentifier = txId.tableIdentifier();
             TopicPartition tp = new TopicPartition(txId.topic(), txId.partition());
-
+            LOG.info("TRACE: tableIdentifier={}, topicPartition={}, catalogName={}", tableIdentifier, tp, txId.catalogName());
             // Get or create the inner map for the specific table
             Map<TopicPartition, Long> tableTxMap = highestTxIdsByTable.computeIfAbsent(
                     tableIdentifier, k -> Maps.newHashMap());
-
             // Update the highest txId for that table's specific partition
             tableTxMap.merge(tp, txId.txId(), this::compareTxIds);
+            LOG.info("TRACE: tableTxMap for {} is {}", tableIdentifier, tableTxMap);
           });
         }
         if (commitState.isCommitReady(totalPartitionCount)) {
