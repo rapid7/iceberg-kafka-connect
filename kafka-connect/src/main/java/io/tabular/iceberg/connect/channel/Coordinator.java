@@ -50,6 +50,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
+import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.StartCommit;
 import org.apache.iceberg.connect.events.TableReference;
@@ -126,34 +127,57 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
   }
 
-  // CHANGED: This method is completely updated to handle the new event format.
+  private boolean isCurrentCommit(org.apache.iceberg.connect.events.Payload payload) {
+    if (commitState.currentCommitId() == null) {
+      // No commit in progress, so ignore the event.
+      return false;
+    }
+
+    java.util.UUID eventCommitId = null;
+    if (payload instanceof DataWritten) {
+      eventCommitId = ((DataWritten) payload).commitId();
+    } else if (payload instanceof TransactionDataComplete) {
+      eventCommitId = ((TransactionDataComplete) payload).commitId();
+    }
+
+    if (eventCommitId != null && !commitState.currentCommitId().equals(eventCommitId)) {
+      LOG.warn("Received event for wrong commit ID, ignoring. Current commit ID: {}, Event commit ID: {}",
+              commitState.currentCommitId(), eventCommitId);
+      return false;
+    }
+    return true;
+  }
+
   private boolean receive(Envelope envelope) {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
-        commitState.addResponse(envelope);
+        // ADDED filter condition
+        if (isCurrentCommit(envelope.event().payload())) {
+          commitState.addResponse(envelope);
+        }
         return true;
       case DATA_COMPLETE:
-        commitState.addReady(envelope);
-        if (envelope.event().payload() instanceof TransactionDataComplete) {
-          TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
-          // Use the new, richer transaction object
-          List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
-          LOG.debug("Received transaction data complete event with {} txIds", tableTxIds.size());
+        // ADDED filter condition
+        if (isCurrentCommit(envelope.event().payload())) {
+          commitState.addReady(envelope);
+          // This 'if' is technically redundant now but is safe to keep
+          if (envelope.event().payload() instanceof TransactionDataComplete) {
+            TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
+            List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
+            LOG.debug("Received transaction data complete event with {} txIds for commitId {}",
+                    tableTxIds.size(), payload.commitId());
 
-          tableTxIds.forEach(txId -> {
-            TableIdentifier tableIdentifier = txId.tableIdentifier();
-            TopicPartition tp = new TopicPartition(txId.topic(), txId.partition());
-            LOG.debug("TRACE: tableIdentifier={}, topicPartition={}, catalogName={}", tableIdentifier, tp, txId.catalogName());
-            // Get or create the inner map for the specific table
-            Map<TopicPartition, Long> tableTxMap = highestTxIdsByTable.computeIfAbsent(
-                    tableIdentifier, k -> Maps.newHashMap());
-            // Update the highest txId for that table's specific partition
-            tableTxMap.merge(tp, txId.txId(), this::compareTxIds);
-            LOG.debug("TRACE: tableTxMap for {} is {}", tableIdentifier, tableTxMap);
-          });
-        }
-        if (commitState.isCommitReady(totalPartitionCount)) {
-          commit(false);
+            tableTxIds.forEach(txId -> {
+              TableIdentifier tableIdentifier = txId.tableIdentifier();
+              TopicPartition tp = new TopicPartition(txId.topic(), txId.partition());
+              Map<TopicPartition, Long> tableTxMap = highestTxIdsByTable.computeIfAbsent(
+                      tableIdentifier, k -> Maps.newHashMap());
+              tableTxMap.merge(tp, txId.txId(), this::compareTxIds);
+            });
+          }
+          if (commitState.isCommitReady(totalPartitionCount)) {
+            commit(false);
+          }
         }
         return true;
     }
