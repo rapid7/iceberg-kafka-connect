@@ -26,20 +26,22 @@ import io.tabular.iceberg.connect.data.Offset;
 import io.tabular.iceberg.connect.data.RecordWriter;
 import io.tabular.iceberg.connect.data.Utilities;
 import io.tabular.iceberg.connect.data.WriterResult;
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// TODO: rename to WriterImpl later, minimize changes for clearer commit history for now
 class Worker implements Writer, AutoCloseable {
 
   private static final Logger LOG = LoggerFactory.getLogger(Worker.class);
@@ -48,7 +50,7 @@ class Worker implements Writer, AutoCloseable {
   private final IcebergWriterFactory writerFactory;
   private final Map<String, RecordWriter> writers;
   private final Map<TopicPartition, Offset> sourceOffsets;
-  private final Map<TopicPartition, Long> sourceTxIds;
+  private final Map<TableIdentifier, Map<TopicPartition, Long>> txIdsByTable;
 
   Worker(IcebergSinkConfig config, Catalog catalog) {
     this(config, new IcebergWriterFactory(catalog, config));
@@ -60,21 +62,33 @@ class Worker implements Writer, AutoCloseable {
     this.writerFactory = writerFactory;
     this.writers = Maps.newHashMap();
     this.sourceOffsets = Maps.newHashMap();
-    this.sourceTxIds = Maps.newHashMap();
+    this.txIdsByTable = Maps.newHashMap();
   }
 
   @Override
   public Committable committable() {
     List<WriterResult> writeResults =
-        writers.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
+            writers.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
     Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
-    Map<TopicPartition, Long> txIds = Maps.newHashMap(sourceTxIds);
+
+    // --- THIS IS THE FIX ---
+    // The logic to flatten the map into a list is updated to call the correct constructor.
+    List<TableTopicPartitionTransaction> tableTxIds = Lists.newArrayList();
+    txIdsByTable.forEach((tableIdentifier, partitionTxIds) -> {
+      String catalogName = config.catalogName(); // Get the catalog name string
+      partitionTxIds.forEach((tp, txId) ->
+              // Call the constructor with (topic, partition, catalogName, tableIdentifier, txId)
+              tableTxIds.add(new TableTopicPartitionTransaction(
+                      tp.topic(), tp.partition(), catalogName, tableIdentifier, txId))
+      );
+    });
+    // --- END FIX ---
 
     writers.clear();
     sourceOffsets.clear();
-    sourceTxIds.clear();
+    txIdsByTable.clear();
 
-    return new Committable(offsets, txIds, writeResults);
+    return new Committable(offsets, tableTxIds, writeResults);
   }
 
   @Override
@@ -82,7 +96,7 @@ class Worker implements Writer, AutoCloseable {
     writers.values().forEach(RecordWriter::close);
     writers.clear();
     sourceOffsets.clear();
-    sourceTxIds.clear();
+    txIdsByTable.clear();
   }
 
   @Override
@@ -93,67 +107,52 @@ class Worker implements Writer, AutoCloseable {
   }
 
   private void save(SinkRecord record) {
-    // the consumer stores the offsets that corresponds to the next record to consume,
-    // so increment the record offset by one
     sourceOffsets.put(
-        new TopicPartition(record.topic(), record.kafkaPartition()),
-        new Offset(record.kafkaOffset() + 1, record.timestamp()));
+            new TopicPartition(record.topic(), record.kafkaPartition()),
+            new Offset(record.kafkaOffset() + 1, record.timestamp()));
 
-    Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
-    if (txId != null) {
-      LOG.debug("Found transaction id {} in record", txId);
-      sourceTxIds.put(
-          new TopicPartition(record.topic(), record.kafkaPartition()),
-          txId);
-    }
-
+    String routeValue;
     if (config.dynamicTablesEnabled()) {
-      routeRecordDynamically(record);
-    } else {
-      routeRecordStatically(record);
-    }
-  }
-
-  private void routeRecordStatically(SinkRecord record) {
-    String routeField = config.tablesRouteField();
-
-    if (routeField == null) {
-      // route to all tables
-      config
-          .tables()
-          .forEach(
-              tableName -> {
-                writerForTable(tableName, record, false).write(record);
-              });
-
-    } else {
-      String routeValue = extractRouteValue(record.value(), routeField);
+      String routeField = config.tablesRouteField();
+      Preconditions.checkNotNull(routeField, "Route field cannot be null with dynamic routing");
+      routeValue = extractRouteValue(record.value(), routeField);
       if (routeValue != null) {
-        config
-            .tables()
-            .forEach(
-                tableName ->
-                    config
-                        .tableConfig(tableName)
-                        .routeRegex()
-                        .ifPresent(
-                            regex -> {
-                              if (regex.matcher(routeValue).matches()) {
-                                writerForTable(tableName, record, false).write(record);
-                              }
-                            }));
+        String tableName = routeValue.toLowerCase();
+        writerForTable(tableName, record, true).write(record);
+        updateTxId(tableName, record);
+      }
+    } else {
+      String routeField = config.tablesRouteField();
+      if (routeField == null) {
+        config.tables().forEach(tableName -> {
+          writerForTable(tableName, record, false).write(record);
+          updateTxId(tableName, record);
+        });
+      } else {
+        routeValue = extractRouteValue(record.value(), routeField);
+        if (routeValue != null) {
+          config.tables().forEach(tableName ->
+                  config.tableConfig(tableName).routeRegex().ifPresent(regex -> {
+                    if (regex.matcher(routeValue).matches()) {
+                      writerForTable(tableName, record, false).write(record);
+                      updateTxId(tableName, record);
+                    }
+                  })
+          );
+        }
       }
     }
   }
 
-  private void routeRecordDynamically(SinkRecord record) {
-    String routeField = config.tablesRouteField();
-    Preconditions.checkNotNull(routeField, String.format("Route field cannot be null with dynamic routing at topic: %s, partition: %d, offset: %d", record.topic(), record.kafkaPartition(), record.kafkaOffset()));
-
-    String routeValue = extractRouteValue(record.value(), routeField);
-    if (routeValue != null) {
-      String tableName = routeValue.toLowerCase();
-      writerForTable(tableName, record, true).write(record);
+  private void updateTxId(String tableName, SinkRecord record) {
+    Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
+    if (txId != null) {
+      LOG.debug("Found transaction id {} in record for table {}", txId, tableName);
+      TableIdentifier tableIdentifier = TableIdentifier.of(config.catalogName(), tableName);
+      Map<TopicPartition, Long> partitionTxIds = txIdsByTable.computeIfAbsent(
+              tableIdentifier, k -> Maps.newHashMap());
+      TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
+      partitionTxIds.merge(tp, txId, Long::max);
     }
   }
 
@@ -166,8 +165,8 @@ class Worker implements Writer, AutoCloseable {
   }
 
   private RecordWriter writerForTable(
-      String tableName, SinkRecord sample, boolean ignoreMissingTable) {
+          String tableName, SinkRecord sample, boolean ignoreMissingTable) {
     return writers.computeIfAbsent(
-        tableName, notUsed -> writerFactory.createWriter(tableName, sample, ignoreMissingTable));
+            tableName, notUsed -> writerFactory.createWriter(tableName, sample, ignoreMissingTable));
   }
 }

@@ -29,7 +29,11 @@ import io.tabular.iceberg.connect.data.IcebergWriter;
 import io.tabular.iceberg.connect.data.IcebergWriterFactory;
 import io.tabular.iceberg.connect.data.WriterResult;
 import io.tabular.iceberg.connect.events.EventTestUtil;
+
+import java.util.List;
 import java.util.Map;
+
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -70,12 +74,14 @@ public class WorkerTest {
     when(config.catalogName()).thenReturn("catalog");
     Map<String, Object> value = ImmutableMap.of(TRANSACTION_FIELD_NAME, 743);
     Committable committable = workerTest(config, value);
-
-    assertThat(
-            committable
-                    .txIdsByTopicPartition()
-                    .get(committable.txIdsByTopicPartition().keySet().iterator().next()))
-            .isEqualTo(743L);
+    List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
+    assertThat(tableTxIds.get(0).txId()).isEqualTo(743L);
+//
+//    assertThat(
+//            committable
+//                    .txIdsByTopicPartition()
+//                    .get(committable.txIdsByTopicPartition().keySet().iterator().next()))
+//            .isEqualTo(743L);
   }
 
   private Committable workerTest(IcebergSinkConfig config, Map<String, Object> value) {

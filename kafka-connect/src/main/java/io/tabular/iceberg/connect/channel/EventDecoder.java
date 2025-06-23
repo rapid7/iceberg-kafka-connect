@@ -23,21 +23,19 @@ import io.tabular.iceberg.connect.events.CommitReadyPayload;
 import io.tabular.iceberg.connect.events.CommitRequestPayload;
 import io.tabular.iceberg.connect.events.CommitResponsePayload;
 import io.tabular.iceberg.connect.events.CommitTablePayload;
-
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaParseException;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.avro.AvroSchemaUtil;
-import io.tabular.iceberg.connect.events.TopicPartitionTxId;
 import org.apache.iceberg.connect.events.AvroUtil;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
@@ -69,7 +67,7 @@ public class EventDecoder {
   /**
    * @deprecated
    * <p>This provides a fallback decoder that can decode the legacy iceberg 1.4.x avro schemas in the case where
-   *   the coordinator topic was not fully drained during the upgrade to 1.5.2</p>
+   * the coordinator topic was not fully drained during the upgrade to 1.5.2</p>
    */
   @Deprecated
   public Event decode(byte[] value) {
@@ -77,7 +75,7 @@ public class EventDecoder {
       return AvroUtil.decode(value);
     } catch (SchemaParseException exception) {
       io.tabular.iceberg.connect.events.Event event =
-          io.tabular.iceberg.connect.events.Event.decode(value);
+              io.tabular.iceberg.connect.events.Event.decode(value);
       return convertLegacy(event);
     }
   }
@@ -101,40 +99,43 @@ public class EventDecoder {
       CommitReadyPayload pay = (CommitReadyPayload) payload;
       List<io.tabular.iceberg.connect.events.TopicPartitionOffset> legacyTPO = pay.assignments();
       List<TopicPartitionOffset> converted =
-          legacyTPO.stream()
-              .map(
-                  t ->
-                      new TopicPartitionOffset(
-                          t.topic(),
-                          t.partition(),
-                          t.offset(),
-                          t.timestamp() == null
-                              ? null
-                              : OffsetDateTime.ofInstant(
-                                  Instant.ofEpochMilli(t.timestamp()), ZoneOffset.UTC)))
-              .collect(Collectors.toList());
-      List<TopicPartitionTxId> legacyTPT = pay.txIds();
-      List<TopicPartitionTransaction> convertedTxIds =
-          legacyTPT.stream()
-              .map(
-                  t -> new TopicPartitionTransaction(t.topic(), t.partition(), t.txId()))
-              .collect(Collectors.toList());
+              legacyTPO.stream()
+                      .map(
+                              t ->
+                                      new TopicPartitionOffset(
+                                              t.topic(),
+                                              t.partition(),
+                                              t.offset(),
+                                              t.timestamp() == null
+                                                      ? null
+                                                      : OffsetDateTime.ofInstant(
+                                                      Instant.ofEpochMilli(t.timestamp()), ZoneOffset.UTC)))
+                      .collect(Collectors.toList());
+
+      // ---- THIS IS THE FIX ----
+      // The legacy payload (CommitReadyPayload) does not contain table information for transactions.
+      // Therefore, we cannot construct the new TableTopicPartitionTransaction object.
+      // Transaction ID info from legacy events will be dropped during this conversion.
+      List<TableTopicPartitionTransaction> convertedTxIds = Collections.emptyList();
+
       return new TransactionDataComplete(pay.commitId(), converted, convertedTxIds);
+      // ---- END FIX ----
+
     } else if (payload instanceof CommitTablePayload) {
       CommitTablePayload pay = (CommitTablePayload) payload;
       return new CommitToTable(
-          pay.commitId(),
-          TableReference.of(catalogName, pay.tableName().toIdentifier()),
-          pay.snapshotId(),
-          pay.vtts() == null ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(pay.vtts()), ZoneOffset.UTC));
+              pay.commitId(),
+              TableReference.of(catalogName, pay.tableName().toIdentifier()),
+              pay.snapshotId(),
+              pay.vtts() == null ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(pay.vtts()), ZoneOffset.UTC));
     } else if (payload instanceof CommitCompletePayload) {
       CommitCompletePayload pay = (CommitCompletePayload) payload;
       return new CommitComplete(
-          pay.commitId(),
-          pay.vtts() == null ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(pay.vtts()), ZoneOffset.UTC));
+              pay.commitId(),
+              pay.vtts() == null ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(pay.vtts()), ZoneOffset.UTC));
     } else {
       throw new IllegalStateException(
-          String.format("Unknown event payload: %s", payload.getSchema()));
+              String.format("Unknown event payload: %s", payload.getSchema()));
     }
   }
 
@@ -147,23 +148,23 @@ public class EventDecoder {
 
     String target = (dataFiles.isEmpty()) ? "deleteFiles" : "dataFiles";
     List<Schema.Field> fields =
-        payload.getSchema().getField(target).schema().getTypes().stream()
-            .filter(s -> s.getType() != Schema.Type.NULL)
-            .findFirst()
-            .get()
-            .getElementType()
-            .getField("partition")
-            .schema()
-            .getFields();
+            payload.getSchema().getField(target).schema().getTypes().stream()
+                    .filter(s -> s.getType() != Schema.Type.NULL)
+                    .findFirst()
+                    .get()
+                    .getElementType()
+                    .getField("partition")
+                    .schema()
+                    .getFields();
 
     List<Types.NestedField> convertedFields = Lists.newArrayListWithExpectedSize(fields.size());
 
     for (Schema.Field f : fields) {
       Schema fieldSchema =
-          f.schema().getTypes().stream()
-              .filter(s -> s.getType() != Schema.Type.NULL)
-              .findFirst()
-              .get();
+              f.schema().getTypes().stream()
+                      .filter(s -> s.getType() != Schema.Type.NULL)
+                      .findFirst()
+                      .get();
       Type fieldType = AvroSchemaUtil.convert(fieldSchema);
       int fieldId = (int) f.getObjectProp("field-id");
       convertedFields.add(Types.NestedField.of(fieldId, f.schema().isNullable(), f.name(), fieldType));
@@ -171,10 +172,10 @@ public class EventDecoder {
 
     Types.StructType convertedStructType = Types.StructType.of(convertedFields);
     return new DataWritten(
-        convertedStructType,
-        payload.commitId(),
-        TableReference.of(catalogName, payload.tableName().toIdentifier()),
-        payload.dataFiles(),
-        payload.deleteFiles());
+            convertedStructType,
+            payload.commitId(),
+            TableReference.of(catalogName, payload.tableName().toIdentifier()),
+            payload.dataFiles(),
+            payload.deleteFiles());
   }
 }
