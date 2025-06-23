@@ -151,7 +151,7 @@ class Worker implements Writer, AutoCloseable {
     Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
     if (txId != null) {
       LOG.debug("Found transaction id {} in record for table {}", txId, tableName);
-      TableIdentifier tableIdentifier = TableIdentifier.of(config.catalogName(), tableName);
+      TableIdentifier tableIdentifier = TableIdentifier.parse(tableName);
       Map<TopicPartition, Long> partitionTxIds = txIdsByTable.computeIfAbsent(
               tableIdentifier, k -> Maps.newHashMap());
       TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
