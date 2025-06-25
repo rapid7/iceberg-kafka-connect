@@ -77,13 +77,11 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
     public String catalogName() { return catalogName; }
     public Long txId() { return txId; }
 
-    // --- THIS IS THE FIX ---
     public TableIdentifier tableIdentifier() {
         List<String> parts = Lists.newArrayList(namespace);
         parts.add(tableName);
         return TableIdentifier.of(parts.toArray(new String[0]));
     }
-    // --- END FIX ---
 
     @Override
     public Schema getSchema() {

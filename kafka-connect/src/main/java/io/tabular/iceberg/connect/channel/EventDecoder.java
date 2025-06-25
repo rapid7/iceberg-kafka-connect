@@ -112,14 +112,9 @@ public class EventDecoder {
                                                       Instant.ofEpochMilli(t.timestamp()), ZoneOffset.UTC)))
                       .collect(Collectors.toList());
 
-      // ---- THIS IS THE FIX ----
-      // The legacy payload (CommitReadyPayload) does not contain table information for transactions.
-      // Therefore, we cannot construct the new TableTopicPartitionTransaction object.
-      // Transaction ID info from legacy events will be dropped during this conversion.
       List<TableTopicPartitionTransaction> convertedTxIds = Collections.emptyList();
 
       return new TransactionDataComplete(pay.commitId(), converted, convertedTxIds);
-      // ---- END FIX ----
 
     } else if (payload instanceof CommitTablePayload) {
       CommitTablePayload pay = (CommitTablePayload) payload;
