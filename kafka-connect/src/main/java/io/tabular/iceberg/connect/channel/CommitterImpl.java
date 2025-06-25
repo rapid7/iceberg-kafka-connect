@@ -177,13 +177,12 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                             })
                     .collect(toList());
 
-    // CHANGED: This now gets the rich transaction data from the committable object
+    //  TableTopicPartitionTransactions now
     List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
 
     Event commitReady =
             new Event(
                     config.controlGroupId(),
-                    // CHANGED: And passes it to the updated TransactionDataComplete constructor
                     new TransactionDataComplete(commitId, assignments, tableTxIds));
     events.add(commitReady);
 

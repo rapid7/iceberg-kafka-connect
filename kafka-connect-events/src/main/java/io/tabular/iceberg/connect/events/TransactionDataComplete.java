@@ -117,7 +117,6 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
                 }
                 return;
             default:
-                // ignore the object, it must be from a newer version of the format
         }
     }
 
@@ -150,17 +149,12 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         String catalogName = record.get("catalog_name").toString();
         String tableName = record.get("table_name").toString();
 
-        // --- THIS IS THE FIX ---
-        // Create a mutable list, add all namespace parts, then add the table name.
         List<String> namespace = ((List<?>) record.get("namespace")).stream()
                 .map(Object::toString)
                 .collect(Collectors.toList());
         List<String> identifierParts = Lists.newArrayList(namespace);
         identifierParts.add(tableName);
-
-        // Create the identifier from the single, combined array.
         TableIdentifier tableIdentifier = TableIdentifier.of(identifierParts.toArray(new String[0]));
-        // --- END FIX ---
 
         return new TableTopicPartitionTransaction(topic, partition, catalogName, tableIdentifier, txId);
     }

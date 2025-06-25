@@ -24,14 +24,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Utilities;
-import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction; // ADDED
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Collection;
-import java.util.Collections; // ADDED
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,9 +83,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final ExecutorService exec;
   private final CommitState commitState;
 
-  // ADDED: New map to store transaction IDs per table and partition.
-  // This replaces the flawed `highestTxIdPerPartition` map from the Channel superclass.
-  private final Map<TableIdentifier, Map<TopicPartition, Long>> highestTxIdsByTable;
+  private final Map<TableIdentifier, Map<TopicPartition, Long>> highestTxIdsByTable; //atomic map
 
   public Coordinator(
           Catalog catalog,
@@ -151,21 +149,19 @@ public class Coordinator extends Channel implements AutoCloseable {
   private boolean receive(Envelope envelope) {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
-        // ADDED filter condition
         if (isCurrentCommit(envelope.event().payload())) {
           commitState.addResponse(envelope);
         }
         return true;
       case DATA_COMPLETE:
-        // ADDED filter condition
         if (isCurrentCommit(envelope.event().payload())) {
           commitState.addReady(envelope);
           // This 'if' is technically redundant now but is safe to keep
           if (envelope.event().payload() instanceof TransactionDataComplete) {
             TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
             List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
-            LOG.debug("Received transaction data complete event with {} txIds for commitId {}",
-                    tableTxIds.size(), payload.commitId());
+            LOG.info("TRACE: Received transaction data complete event with {} txIds for commitId {} and here it is {}",
+                    tableTxIds.size(), payload.commitId(), tableTxIds);
 
             tableTxIds.forEach(txId -> {
               TableIdentifier tableIdentifier = txId.tableIdentifier();
@@ -202,7 +198,6 @@ public class Coordinator extends Channel implements AutoCloseable {
       LOG.warn("Commit failed, will try again next cycle", e);
     } finally {
       commitState.endCurrentCommit();
-      // Clear the map for the next commit cycle
       highestTxIdsByTable.clear();
     }
   }
@@ -267,10 +262,10 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      // CHANGED: Get the transaction data for this specific table from the new map
       Map<TopicPartition, Long> tableHighestTxIds =
               highestTxIdsByTable.getOrDefault(tableIdentifier, Collections.emptyMap());
-
+      LOG.info("TRACE: THIS Committing to table {}, commit ID {}, vtts {}, data files: {}, delete files: {}, highest txIds: {}",
+              tableIdentifier, commitState.currentCommitId(), vtts, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
       long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
       long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
 
@@ -290,6 +285,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             if (vtts != null) {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
+
             addTxDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
           }
           appendOp.commit();
@@ -308,8 +304,9 @@ public class Coordinator extends Channel implements AutoCloseable {
         deleteFiles.forEach(deltaOp::addDeletes);
         deltaOp.commit();
       }
-
       Long snapshotId = latestSnapshot(table, branch.orElse(null)).snapshotId();
+      LOG.info("TRACE: THE BIG ONE: Committed snapshot: snapshotId={}, tableIdentifier={}, commitId={}, vtts={}, txIdValidThrough={}, maxTxId={}, dataFiles={}, deleteFiles={}, highestTxIds={}",
+              snapshotId, tableIdentifier, commitState.currentCommitId(), vtts, txIdValidThrough, maxTxId, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
       Event event =
               new Event(
                       config.controlGroupId(),

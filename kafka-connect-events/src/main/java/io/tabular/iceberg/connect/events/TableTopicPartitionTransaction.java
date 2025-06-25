@@ -91,7 +91,6 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public void put(int i, Object v) {
         switch (positionToId(i, avroSchema)) {
             case TOPIC:

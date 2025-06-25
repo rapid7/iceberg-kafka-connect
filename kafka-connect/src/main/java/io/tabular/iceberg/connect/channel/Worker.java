@@ -48,9 +48,9 @@ class Worker implements Writer, AutoCloseable {
   private static final String COL_TXID = "txid";
   private final IcebergSinkConfig config;
   private final IcebergWriterFactory writerFactory;
-  private final Map<String, RecordWriter> writers;
-  private final Map<TopicPartition, Offset> sourceOffsets;
-  private final Map<TableIdentifier, Map<TopicPartition, Long>> txIdsByTable;
+  private volatile Map<String, RecordWriter> writers;
+  private volatile Map<TopicPartition, Offset> sourceOffsets;
+  private volatile Map<TableIdentifier, Map<TopicPartition, Long>> txIdsByTable;
 
   Worker(IcebergSinkConfig config, Catalog catalog) {
     this(config, new IcebergWriterFactory(catalog, config));
@@ -66,36 +66,37 @@ class Worker implements Writer, AutoCloseable {
   }
 
   @Override
-  public Committable committable() {
-    List<WriterResult> writeResults =
-            writers.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
-    Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
+  public synchronized Committable committable() {
+    // Atomically swap the current state with new empty maps.
+    // The committer thread now has exclusive ownership of the old state.
+    Map<String, RecordWriter> writersForCommit = this.writers;
+    Map<TopicPartition, Offset> offsetsForCommit = this.sourceOffsets;
+    Map<TableIdentifier, Map<TopicPartition, Long>> txIdsForCommit = this.txIdsByTable;
 
-    // --- THIS IS THE FIX ---
-    // The logic to flatten the map into a list is updated to call the correct constructor.
+    this.writers = Maps.newHashMap();
+    this.sourceOffsets = Maps.newHashMap();
+    this.txIdsByTable = Maps.newHashMap();
+    // Now, operate only on the maps captured for this commit.
+    List<WriterResult> writeResults =
+            writersForCommit.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
+
     List<TableTopicPartitionTransaction> tableTxIds = Lists.newArrayList();
-    txIdsByTable.forEach((tableIdentifier, partitionTxIds) -> {
-      String catalogName = config.catalogName(); // Get the catalog name string
+    txIdsForCommit.forEach((tableIdentifier, partitionTxIds) -> {
+      String catalogName = config.catalogName();
       partitionTxIds.forEach((tp, txId) ->
-              // Call the constructor with (topic, partition, catalogName, tableIdentifier, txId)
               tableTxIds.add(new TableTopicPartitionTransaction(
                       tp.topic(), tp.partition(), catalogName, tableIdentifier, txId))
       );
     });
-    // --- END FIX ---
 
-    LOG.debug("TRACE: Committable committed table partition txIds {}", tableTxIds);
-    LOG.debug("TRACE: Committable committable txIds {}", txIdsByTable);
+    LOG.info("TRACE: Committable committed table partition txIds {}", tableTxIds);
+    LOG.debug("TRACE: Committable committable txIds {}", txIdsForCommit);
 
-    writers.clear();
-    sourceOffsets.clear();
-    txIdsByTable.clear();
-
-    return new Committable(offsets, tableTxIds, writeResults);
+    return new Committable(offsetsForCommit, tableTxIds, writeResults);
   }
 
   @Override
-  public void close() throws IOException {
+  public synchronized void close() throws IOException {
     writers.values().forEach(RecordWriter::close);
     writers.clear();
     sourceOffsets.clear();
@@ -109,7 +110,7 @@ class Worker implements Writer, AutoCloseable {
     }
   }
 
-  private void save(SinkRecord record) {
+  private synchronized void save(SinkRecord record) {
     sourceOffsets.put(
             new TopicPartition(record.topic(), record.kafkaPartition()),
             new Offset(record.kafkaOffset() + 1, record.timestamp()));
