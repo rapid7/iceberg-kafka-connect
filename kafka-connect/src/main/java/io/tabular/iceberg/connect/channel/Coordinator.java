@@ -83,7 +83,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final ExecutorService exec;
   private final CommitState commitState;
 
-  private final Map<TableIdentifier, Map<TopicPartition, Long>> highestTxIdsByTable; //atomic map
+  private final Map<TableIdentifier, Map<TopicPartition, Long>> highestTxIdsByTable;
 
   public Coordinator(
           Catalog catalog,

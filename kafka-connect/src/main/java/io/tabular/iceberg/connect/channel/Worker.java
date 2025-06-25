@@ -48,9 +48,9 @@ class Worker implements Writer, AutoCloseable {
   private static final String COL_TXID = "txid";
   private final IcebergSinkConfig config;
   private final IcebergWriterFactory writerFactory;
-  private volatile Map<String, RecordWriter> writers;
-  private volatile Map<TopicPartition, Offset> sourceOffsets;
-  private volatile Map<TableIdentifier, Map<TopicPartition, Long>> txIdsByTable;
+  private final Map<String, RecordWriter> writers;
+  private final Map<TopicPartition, Offset> sourceOffsets;
+  private final Map<TableIdentifier, Map<TopicPartition, Long>> txIdsByTable;
 
   Worker(IcebergSinkConfig config, Catalog catalog) {
     this(config, new IcebergWriterFactory(catalog, config));
@@ -60,28 +60,19 @@ class Worker implements Writer, AutoCloseable {
   Worker(IcebergSinkConfig config, IcebergWriterFactory writerFactory) {
     this.config = config;
     this.writerFactory = writerFactory;
-    this.writers = Maps.newHashMap();
-    this.sourceOffsets = Maps.newHashMap();
-    this.txIdsByTable = Maps.newHashMap();
+    this.writers = Maps.newConcurrentMap();
+    this.sourceOffsets = Maps.newConcurrentMap();
+    this.txIdsByTable = Maps.newConcurrentMap();
   }
 
   @Override
   public synchronized Committable committable() {
-    // Atomically swap the current state with new empty maps.
-    // The committer thread now has exclusive ownership of the old state.
-    Map<String, RecordWriter> writersForCommit = this.writers;
-    Map<TopicPartition, Offset> offsetsForCommit = this.sourceOffsets;
-    Map<TableIdentifier, Map<TopicPartition, Long>> txIdsForCommit = this.txIdsByTable;
-
-    this.writers = Maps.newHashMap();
-    this.sourceOffsets = Maps.newHashMap();
-    this.txIdsByTable = Maps.newHashMap();
-    // Now, operate only on the maps captured for this commit.
     List<WriterResult> writeResults =
-            writersForCommit.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
+            writers.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
 
+    Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
     List<TableTopicPartitionTransaction> tableTxIds = Lists.newArrayList();
-    txIdsForCommit.forEach((tableIdentifier, partitionTxIds) -> {
+    txIdsByTable.forEach((tableIdentifier, partitionTxIds) -> {
       String catalogName = config.catalogName();
       partitionTxIds.forEach((tp, txId) ->
               tableTxIds.add(new TableTopicPartitionTransaction(
@@ -89,10 +80,13 @@ class Worker implements Writer, AutoCloseable {
       );
     });
 
-    LOG.info("TRACE: Committable committed table partition txIds {}", tableTxIds);
-    LOG.debug("TRACE: Committable committable txIds {}", txIdsForCommit);
+    LOG.info("TRACE: Committable ready. txId map: {}", txIdsByTable);
 
-    return new Committable(offsetsForCommit, tableTxIds, writeResults);
+    writers.clear();
+    sourceOffsets.clear();
+    txIdsByTable.clear();
+
+    return new Committable(offsets, tableTxIds, writeResults);
   }
 
   @Override
