@@ -28,10 +28,12 @@ import io.tabular.iceberg.connect.data.Utilities;
 import io.tabular.iceberg.connect.data.WriterResult;
 import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
@@ -50,12 +52,15 @@ class Worker implements Writer, AutoCloseable {
   private final IcebergSinkConfig config;
   private final IcebergWriterFactory writerFactory;
 
-  // State is now stored in maps keyed by the commit ID to isolate data per-commit.
   private volatile UUID currentCommitId;
   private final Map<UUID, Map<String, RecordWriter>> writersByCommit = Maps.newConcurrentMap();
-  private final Map<UUID, Map<TopicPartition, Offset>> sourceOffsetsByCommit = Maps.newConcurrentMap();
+  private final Map<UUID, Map<TopicPartition, Offset>> sourceOffsetsByCommit =
+          Maps.newConcurrentMap();
   private final Map<UUID, Map<TableIdentifier, Map<TopicPartition, Long>>> txIdsByCommit =
           Maps.newConcurrentMap();
+
+  // Buffer for records that arrive before the first commit ID is known.
+  private final List<SinkRecord> initialBuffer = new CopyOnWriteArrayList<>();
 
   Worker(IcebergSinkConfig config, Catalog catalog) {
     this(config, new IcebergWriterFactory(catalog, config));
@@ -67,35 +72,41 @@ class Worker implements Writer, AutoCloseable {
     this.writerFactory = writerFactory;
   }
 
-  /**
-   * Sets the active commit ID for which records should be collected. This method MUST be called
-   * when a `StartCommit` event is received, before any subsequent records are written.
-   *
-   * @param commitId the commit ID
-   */
   public synchronized void setCurrentCommitId(UUID commitId) {
     LOG.info("Starting collection for new commit ID: {}", commitId);
     this.currentCommitId = commitId;
+    // Once the first commit starts, process any records that were buffered.
+    if (!initialBuffer.isEmpty()) {
+      List<SinkRecord> recordsToProcess = new ArrayList<>(initialBuffer);
+      initialBuffer.clear();
+      LOG.info(
+              "Processing {} buffered records for new commit ID {}",
+              recordsToProcess.size(),
+              commitId);
+      // Re-run the save logic for the buffered records, now with a valid commit ID.
+      recordsToProcess.forEach(this::save);
+    }
+  }
+
+  public UUID currentCommitId() {
+    return this.currentCommitId;
   }
 
   @Override
   public synchronized Committable committable(UUID commitId) {
-    // Retrieve the state for the specified commit and remove it from the maps.
-    // The committer thread now has exclusive ownership of this state.
     Map<String, RecordWriter> writersForCommit = writersByCommit.remove(commitId);
     Map<TopicPartition, Offset> offsetsForCommit = sourceOffsetsByCommit.remove(commitId);
     Map<TableIdentifier, Map<TopicPartition, Long>> txIdsForCommit = txIdsByCommit.remove(commitId);
 
     if (writersForCommit == null && offsetsForCommit == null && txIdsForCommit == null) {
-      // No data was received for this commit.
       return new Committable(Maps.newHashMap(), Lists.newArrayList(), Lists.newArrayList());
     }
-    // Complete the writers and gather the results
+
     List<WriterResult> writeResults =
             writersForCommit.values().stream()
                     .flatMap(writer -> writer.complete().stream())
                     .collect(toList());
-    // Gather the transaction IDs
+
     List<TableTopicPartitionTransaction> tableTxIds = Lists.newArrayList();
     if (txIdsForCommit != null) {
       txIdsForCommit.forEach(
@@ -109,7 +120,8 @@ class Worker implements Writer, AutoCloseable {
               });
     }
 
-    LOG.info("Created committable for commit ID {} with {} table txns", commitId, tableTxIds.size());
+    LOG.info(
+            "Created committable for commit ID {} with {} table txns", commitId, tableTxIds.size());
     return new Committable(offsetsForCommit, tableTxIds, writeResults);
   }
 
@@ -119,6 +131,7 @@ class Worker implements Writer, AutoCloseable {
     writersByCommit.clear();
     sourceOffsetsByCommit.clear();
     txIdsByCommit.clear();
+    initialBuffer.clear();
   }
 
   @Override
@@ -130,11 +143,13 @@ class Worker implements Writer, AutoCloseable {
 
   private synchronized void save(SinkRecord record) {
     if (currentCommitId == null) {
+      // If there's no commit in progress, buffer the record instead of dropping it.
       LOG.warn(
-              "No active commit in progress, skipping record. Topic: {}, Partition: {}, Offset: {}",
+              "No active commit in progress, buffering record until commit starts. Topic: {}, Partition: {}, Offset: {}",
               record.topic(),
               record.kafkaPartition(),
               record.kafkaOffset());
+      initialBuffer.add(record);
       return;
     }
 
@@ -179,6 +194,7 @@ class Worker implements Writer, AutoCloseable {
                                                     if (regex.matcher(routeValue).matches()) {
                                                       writerForTable(currentCommitId, tableName, record, false)
                                                               .write(record);
+
                                                       updateTxId(currentCommitId, tableName, record);
                                                     }
                                                   }));

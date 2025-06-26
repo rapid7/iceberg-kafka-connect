@@ -349,7 +349,6 @@ class CommitterImplTest {
     Types.StructType partitionStruct = Types.StructType.of();
     Map<TopicPartition, Offset> sourceOffsets = ImmutableMap.of(SOURCE_TP0, new Offset(100L, 200L));
 
-    // CHANGED: Create the new transaction object list
     List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
             new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
     );
@@ -366,7 +365,19 @@ class CommitterImplTest {
     try (CommitterImpl committerImpl =
                  new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
       initConsumer();
-      Committer committer = committerImpl;
+      mockWorker.setCurrentCommitId(commitId);
+      consumer.addRecord(
+              new ConsumerRecord<>(
+                      CONTROL_TOPIC_PARTITION.topic(),
+                      CONTROL_TOPIC_PARTITION.partition(),
+                      0,
+                      UUID.randomUUID().toString(),
+                      AvroUtil.encode(new Event(CONFIG.controlGroupId(), new StartCommit(commitId)))));
+      committerImpl.process();
+      committerImpl.process();
+
+      boolean result = committerImpl.commit(committableSupplier);
+      assertThat(result).isTrue();
 
       consumer.addRecord(
               new ConsumerRecord<>(
@@ -378,8 +389,8 @@ class CommitterImplTest {
                               new Event(
                                       CONFIG.controlGroupId(),
                                       new StartCommit(commitId)))));
-
-      committer.commit(committableSupplier);
+      mockWorker.setCurrentCommitId(commitId);
+      committerImpl.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();
       assertThat(producer.history()).hasSize(2);
@@ -435,7 +446,7 @@ class CommitterImplTest {
                                       CONFIG.controlGroupId(),
                                       new StartCommit(commitId)))));
 
-
+      mockWorker.setCurrentCommitId(commitId);
       committer.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();
@@ -497,6 +508,7 @@ class CommitterImplTest {
                                       CONFIG.controlGroupId(),
                                       new StartCommit(commitId)))));
 
+      mockWorker.setCurrentCommitId(commitId);
       committer.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();

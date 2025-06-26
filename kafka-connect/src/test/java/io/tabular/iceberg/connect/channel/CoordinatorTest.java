@@ -21,7 +21,7 @@ package io.tabular.iceberg.connect.channel;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction; // ADDED
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import io.tabular.iceberg.connect.fixtures.EventTestUtil;
 import java.time.Instant;

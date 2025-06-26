@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
@@ -41,6 +42,7 @@ import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.connect.events.TopicPartitionOffset;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsOptions;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult;
@@ -57,10 +59,8 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   private final SinkTaskContext context;
   private final IcebergSinkConfig config;
   private final Optional<CoordinatorThread> maybeCoordinatorThread;
-  // Store a reference to the worker instance
   private final Worker worker;
 
-  // The constructor now requires the Worker instance
   public CommitterImpl(
           SinkTaskContext context, IcebergSinkConfig config, Catalog catalog, Worker worker) {
     this(context, config, catalog, new KafkaClientFactory(config.kafkaProps()), worker);
@@ -87,7 +87,6 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
           KafkaClientFactory clientFactory,
           CoordinatorThreadFactory coordinatorThreadFactory,
           Worker worker) {
-    // pass transient consumer group ID to which we never commit offsets
     super(
             "committer",
             IcebergSinkConfig.DEFAULT_CONTROL_GROUP_PREFIX + UUID.randomUUID(),
@@ -96,29 +95,13 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
 
     this.context = context;
     this.config = config;
-    this.worker = worker; // Set the worker instance
+    this.worker = worker;
 
     this.maybeCoordinatorThread = coordinatorThreadFactory.create(context, config);
 
-    // The source-of-truth for source-topic offsets is the control-group-id
     Map<TopicPartition, Long> stableConsumerOffsets =
             fetchStableConsumerOffsets(config.controlGroupId());
-    // Rewind kafka connect consumer to avoid duplicates
     context.offset(stableConsumerOffsets);
-
-    consumeAvailable(
-            // initial poll with longer duration so the consumer will initialize...
-            Duration.ofMillis(1000),
-            envelope ->
-                    receive(
-                            envelope,
-                            // The committable supplier will be provided later during the commit phase.
-                            // This is only for the initial consumer poll.
-                            (commitId) ->
-                                    new Committable(
-                                            com.google.common.collect.ImmutableMap.of(),
-                                            ImmutableList.of(),
-                                            ImmutableList.of())));
   }
 
   private Map<TopicPartition, Long> fetchStableConsumerOffsets(String groupId) {
@@ -141,25 +124,12 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
     }
   }
 
-  private boolean receive(Envelope envelope, CommittableSupplier committableSupplier) {
-    if (envelope.event().type() == PayloadType.START_COMMIT) {
-      UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
-      // Set the active commit ID on the worker so it knows where to buffer all subsequent records.
-      worker.setCurrentCommitId(commitId);
-      sendCommitResponse(commitId, committableSupplier);
-      return true;
-    }
-    return false;
-  }
-
   private void sendCommitResponse(UUID commitId, CommittableSupplier committableSupplier) {
-    // The supplier will now call worker.committable() with the correct ID.
     Committable committable = committableSupplier.committable(commitId);
-
     List<Event> events = Lists.newArrayList();
 
     committable.writerResults().stream()
-            .filter(java.util.Objects::nonNull) // Ensure writerResult is not null
+            .filter(java.util.Objects::nonNull)
             .forEach(
                     writerResult -> {
                       Event commitResponse =
@@ -171,13 +141,9 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                                               TableReference.of(config.catalogName(), writerResult.tableIdentifier()),
                                               writerResult.dataFiles(),
                                               writerResult.deleteFiles()));
-
                       events.add(commitResponse);
                     });
 
-    // include all assigned topic partitions even if no messages were read
-    // from a partition, as the coordinator will use that to determine
-    // when all data for a commit has been received
     List<TopicPartitionOffset> assignments =
             context.assignment().stream()
                     .map(
@@ -194,9 +160,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                             })
                     .collect(toList());
 
-    //  TableTopicPartitionTransactions now
     List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
-
     Event commitReady =
             new Event(
                     config.controlGroupId(), new TransactionDataComplete(commitId, assignments, tableTxIds));
@@ -207,17 +171,58 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
       send(events, offsets, new ConsumerGroupMetadata(config.controlGroupId()));
       send(ImmutableList.of(), offsets, new ConsumerGroupMetadata(config.connectGroupId()));
     } else {
-      // TODO Still need to send the data-written/complete events even if no offsets are advanced is this correct looping??
-      for (Event event : events) {
-        send(event);
-      }
+      // Send all events in a single transaction, even if there are no offsets.
+      send(events, ImmutableMap.of(), null);
     }
   }
 
-  @Override
-  public void commit(CommittableSupplier committableSupplier) {
+  public void process() {
     throwExceptionIfCoordinatorIsTerminated();
-    consumeAvailable(Duration.ZERO, envelope -> receive(envelope, committableSupplier));
+    // Non-blocking poll to look for new events. This should be called periodically.
+    consumeAvailable(
+            Duration.ZERO,
+            envelope -> {
+              if (envelope.event().type() == PayloadType.START_COMMIT) {
+                UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
+                worker.setCurrentCommitId(commitId);
+              }
+              return true;
+            });
+  }
+
+  @Override
+  public boolean commit(CommittableSupplier committableSupplier) {
+    throwExceptionIfCoordinatorIsTerminated();
+
+    final AtomicBoolean responseSent = new AtomicBoolean(false);
+    // Check for a pending START_COMMIT event or an active commit ID.
+    consumeAvailable(
+            Duration.ZERO,
+            envelope -> {
+              if (envelope.event().type() == PayloadType.START_COMMIT) {
+                UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
+                // We have the ID and the supplier, so we can send the response directly.
+                worker.setCurrentCommitId(commitId);
+                sendCommitResponse(commitId, committableSupplier);
+                responseSent.set(true);
+              }
+              return true;
+            });
+    // If no START_COMMIT event was found, check if we have an active commit ID.
+    if (!responseSent.get()) {
+      UUID commitId = worker.currentCommitId();
+      if (commitId != null) {
+        sendCommitResponse(commitId, committableSupplier);
+        responseSent.set(true);
+      }
+    }
+
+    if (!responseSent.get()) {
+      LOG.warn(
+              "Commit called but no pending START_COMMIT event or active commit ID found, skipping response.");
+    }
+
+    return responseSent.get();
   }
 
   @Override

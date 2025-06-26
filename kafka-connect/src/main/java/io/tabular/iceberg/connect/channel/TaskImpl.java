@@ -56,6 +56,7 @@ public class TaskImpl implements Task {
   @Override
   public void commit() {
     LOG.debug("Commit called on TaskImpl");
+    committer.process();
     committer.commit(writer::committable);
   }
 

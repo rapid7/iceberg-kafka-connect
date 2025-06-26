@@ -18,12 +18,16 @@
  */
 package io.tabular.iceberg.connect;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
+import java.util.UUID;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.sink.SinkConnector;
+
+import static io.tabular.iceberg.connect.IcebergSinkConfig.INTERNAL_TRANSACTIONAL_SUFFIX_PROP;
 
 public class IcebergSinkConnector extends SinkConnector {
 
@@ -50,15 +54,20 @@ public class IcebergSinkConnector extends SinkConnector {
 
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
-    // The same configuration is passed to all tasks.
-    // In a real-world scenario, you might divide work here.
-    return ImmutableList.of(props);
+    List<Map<String, String>> configs = new ArrayList<>(maxTasks);
+
+    for (int i = 0; i < maxTasks; i++) {
+      Map<String, String> config = new HashMap<>(props);
+      config.put(INTERNAL_TRANSACTIONAL_SUFFIX_PROP, UUID.randomUUID().toString());
+      configs.add(config);
+    }
+
+    return configs;
   }
 
   @Override
   public void stop() {
-    // No specific cleanup needed for this connector.
-    // If there were resources to close, they would be handled here.
+    // The IcebergSinkConfig and other resources will be cleaned up by the tasks.
   }
 
   @Override
