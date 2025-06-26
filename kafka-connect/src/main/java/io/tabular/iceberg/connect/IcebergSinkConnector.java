@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -18,13 +18,9 @@
  */
 package io.tabular.iceberg.connect;
 
-import static java.util.stream.Collectors.toList;
-
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.stream.IntStream;
-import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.sink.SinkConnector;
@@ -38,9 +34,13 @@ public class IcebergSinkConnector extends SinkConnector {
     return IcebergSinkConfig.version();
   }
 
+  public static String getVersion() {
+    return IcebergSinkConfig.version();
+  }
+
   @Override
-  public void start(Map<String, String> connectorProps) {
-    this.props = connectorProps;
+  public void start(Map<String, String> props) {
+    this.props = props;
   }
 
   @Override
@@ -50,22 +50,19 @@ public class IcebergSinkConnector extends SinkConnector {
 
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
-    String txnSuffix = "-txn-" + UUID.randomUUID() + "-";
-    return IntStream.range(0, maxTasks)
-        .mapToObj(
-            i -> {
-              Map<String, String> map = Maps.newHashMap(props);
-              map.put(IcebergSinkConfig.INTERNAL_TRANSACTIONAL_SUFFIX_PROP, txnSuffix + i);
-              return map;
-            })
-        .collect(toList());
+    // The same configuration is passed to all tasks.
+    // In a real-world scenario, you might divide work here.
+    return ImmutableList.of(props);
   }
 
   @Override
-  public void stop() {}
+  public void stop() {
+    // No specific cleanup needed for this connector.
+    // If there were resources to close, they would be handled here.
+  }
 
   @Override
   public ConfigDef config() {
-    return IcebergSinkConfig.CONFIG_DEF;
+    return new ConfigDef();
   }
 }

@@ -32,6 +32,7 @@ import io.tabular.iceberg.connect.events.EventTestUtil;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -97,13 +98,17 @@ public class WorkerTest {
     IcebergWriterFactory writerFactory = mock(IcebergWriterFactory.class);
     when(writerFactory.createWriter(any(), any(), anyBoolean())).thenReturn(writer);
 
-    Writer worker = new Worker(config, writerFactory);
+    Worker worker = new Worker(config, writerFactory);
+    UUID commitId = UUID.randomUUID();
+
+    // Change this line from startCommit to setCurrentCommitId
+    worker.setCurrentCommitId(commitId);
 
     // save a record
     SinkRecord rec = new SinkRecord(SRC_TOPIC_NAME, 0, null, "key", null, value, 0L);
     worker.write(ImmutableList.of(rec));
 
-    Committable committable = worker.committable();
+    Committable committable = worker.committable(commitId);
 
     assertThat(committable.offsetsByTopicPartition()).hasSize(1);
     // offset should be one more than the record offset

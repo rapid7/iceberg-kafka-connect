@@ -43,9 +43,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.NotImplementedException;
-import org.apache.iceberg.ContentFile;
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.*;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.common.DynConstructors;
 import org.apache.iceberg.connect.events.AvroUtil;
@@ -101,6 +99,7 @@ class CommitterImplTest {
   private MockProducer<String, byte[]> producer;
   private MockConsumer<String, byte[]> consumer;
   private Admin admin;
+  private Worker mockWorker;
 
   @BeforeEach
   public void before() {
@@ -113,6 +112,7 @@ class CommitterImplTest {
     when(kafkaClientFactory.createConsumer(any())).thenReturn(consumer);
     when(kafkaClientFactory.createProducer(any())).thenReturn(Pair.of(producerId, producer));
     when(kafkaClientFactory.createAdmin()).thenReturn(admin);
+    mockWorker = mock(Worker.class);
   }
 
   @AfterEach
@@ -301,7 +301,7 @@ class CommitterImplTest {
                     config.connectGroupId(), ImmutableMap.of(SOURCE_TP0, 90L, SOURCE_TP1, 80L)));
 
     try (CommitterImpl ignored =
-                 new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
       initConsumer();
       verify(mockContext).offset(offsetArgumentCaptor.capture());
       assertThat(offsetArgumentCaptor.getAllValues())
@@ -313,15 +313,16 @@ class CommitterImplTest {
   public void testCommitShouldThrowExceptionIfCoordinatorIsTerminated() throws IOException {
     SinkTaskContext mockContext = mockContext();
     IcebergSinkConfig config = makeConfig(0);
+
     whenAdminListConsumerGroupOffsetsThenReturn(
             ImmutableMap.of(
                     config.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
     TerminatedCoordinatorThreadFactory coordinatorThreadFactory =
             new TerminatedCoordinatorThreadFactory();
-    CommittableSupplier committableSupplier = () -> { throw new NotImplementedException("Should not be called"); };
+    CommittableSupplier committableSupplier = (id) -> { throw new NotImplementedException("Should not be called"); };
 
     try (CommitterImpl committerImpl =
-                 new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
       initConsumer();
       Committer committer = committerImpl;
       assertThatThrownBy(() -> committer.commit(committableSupplier))
@@ -343,7 +344,7 @@ class CommitterImplTest {
             ImmutableMap.of(
                     CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    List<DataFile> dataFiles = ImmutableList.of(mock(DataFile.class));
+    List<DataFile> dataFiles = ImmutableList.of(createDataFile("file:/tmp/test.parquet"));
     List<DeleteFile> deleteFiles = ImmutableList.of();
     Types.StructType partitionStruct = Types.StructType.of();
     Map<TopicPartition, Offset> sourceOffsets = ImmutableMap.of(SOURCE_TP0, new Offset(100L, 200L));
@@ -355,7 +356,7 @@ class CommitterImplTest {
 
     // CHANGED: Use the new list to construct the Committable
     CommittableSupplier committableSupplier =
-            () ->
+            (id) ->
                     new Committable(
                             sourceOffsets,
                             sourceTxIds,
@@ -363,7 +364,7 @@ class CommitterImplTest {
                                     new WriterResult(TABLE_1_IDENTIFIER, dataFiles, deleteFiles, partitionStruct)));
 
     try (CommitterImpl committerImpl =
-                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
       initConsumer();
       Committer committer = committerImpl;
 
@@ -416,10 +417,10 @@ class CommitterImplTest {
 
     // CHANGED: Use an empty list for the new Committable constructor
     CommittableSupplier committableSupplier =
-            () -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of());
+            (id) -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of());
 
     try (CommitterImpl committerImpl =
-                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
       initConsumer();
       Committer committer = committerImpl;
 
@@ -462,7 +463,7 @@ class CommitterImplTest {
             ImmutableMap.of(
                     CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    List<DataFile> dataFiles = ImmutableList.of(mock(DataFile.class));
+    List<DataFile> dataFiles = ImmutableList.of(createDataFile("file:/tmp/test.parquet"));
     List<DeleteFile> deleteFiles = ImmutableList.of();
     Types.StructType partitionStruct = Types.StructType.of();
 
@@ -473,7 +474,7 @@ class CommitterImplTest {
 
     // CHANGED: Use the new list to construct the Committable
     CommittableSupplier committableSupplier =
-            () ->
+            (id) ->
                     new Committable(
                             ImmutableMap.of(sourceTp1, new Offset(100L, 200L)),
                             sourceTxIds,
@@ -481,7 +482,7 @@ class CommitterImplTest {
                                     new WriterResult(TABLE_1_IDENTIFIER, dataFiles, deleteFiles, partitionStruct)));
 
     try (CommitterImpl committerImpl =
-                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
       initConsumer();
       Committer committer = committerImpl;
 
@@ -523,5 +524,14 @@ class CommitterImplTest {
       assertThat(producer.consumerGroupOffsetsHistory().get(1))
               .isEqualTo(ImmutableMap.of(CONFIG.connectGroupId(), expectedConsumerOffset));
     }
+  }
+  private DataFile createDataFile(String path) {
+    // Create a minimal DataFile that can be serialized
+    return DataFiles.builder(PartitionSpec.unpartitioned())
+            .withPath(path)
+            .withFileSizeInBytes(10)
+            .withRecordCount(1)
+            .withFormat(FileFormat.PARQUET)
+            .build();
   }
 }

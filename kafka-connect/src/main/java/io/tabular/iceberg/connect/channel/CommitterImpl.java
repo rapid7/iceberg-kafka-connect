@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -23,7 +23,7 @@ import static java.util.stream.Collectors.toMap;
 
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
-import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction; // ADDED
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.time.Duration;
@@ -41,7 +41,6 @@ import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.connect.events.TopicPartitionOffset;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsOptions;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult;
@@ -58,21 +57,27 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   private final SinkTaskContext context;
   private final IcebergSinkConfig config;
   private final Optional<CoordinatorThread> maybeCoordinatorThread;
+  // Store a reference to the worker instance
+  private final Worker worker;
 
-  public CommitterImpl(SinkTaskContext context, IcebergSinkConfig config, Catalog catalog) {
-    this(context, config, catalog, new KafkaClientFactory(config.kafkaProps()));
+  // The constructor now requires the Worker instance
+  public CommitterImpl(
+          SinkTaskContext context, IcebergSinkConfig config, Catalog catalog, Worker worker) {
+    this(context, config, catalog, new KafkaClientFactory(config.kafkaProps()), worker);
   }
 
   private CommitterImpl(
           SinkTaskContext context,
           IcebergSinkConfig config,
           Catalog catalog,
-          KafkaClientFactory kafkaClientFactory) {
+          KafkaClientFactory kafkaClientFactory,
+          Worker worker) {
     this(
             context,
             config,
             kafkaClientFactory,
-            new CoordinatorThreadFactoryImpl(catalog, kafkaClientFactory));
+            new CoordinatorThreadFactoryImpl(catalog, kafkaClientFactory),
+            worker);
   }
 
   @VisibleForTesting
@@ -80,7 +85,8 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
           SinkTaskContext context,
           IcebergSinkConfig config,
           KafkaClientFactory clientFactory,
-          CoordinatorThreadFactory coordinatorThreadFactory) {
+          CoordinatorThreadFactory coordinatorThreadFactory,
+          Worker worker) {
     // pass transient consumer group ID to which we never commit offsets
     super(
             "committer",
@@ -90,6 +96,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
 
     this.context = context;
     this.config = config;
+    this.worker = worker; // Set the worker instance
 
     this.maybeCoordinatorThread = coordinatorThreadFactory.create(context, config);
 
@@ -105,8 +112,13 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
             envelope ->
                     receive(
                             envelope,
-                            // CommittableSupplier that always returns empty committables
-                            () -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
+                            // The committable supplier will be provided later during the commit phase.
+                            // This is only for the initial consumer poll.
+                            (commitId) ->
+                                    new Committable(
+                                            com.google.common.collect.ImmutableMap.of(),
+                                            ImmutableList.of(),
+                                            ImmutableList.of())));
   }
 
   private Map<TopicPartition, Long> fetchStableConsumerOffsets(String groupId) {
@@ -132,6 +144,8 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   private boolean receive(Envelope envelope, CommittableSupplier committableSupplier) {
     if (envelope.event().type() == PayloadType.START_COMMIT) {
       UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
+      // Set the active commit ID on the worker so it knows where to buffer all subsequent records.
+      worker.setCurrentCommitId(commitId);
       sendCommitResponse(commitId, committableSupplier);
       return true;
     }
@@ -139,12 +153,13 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   }
 
   private void sendCommitResponse(UUID commitId, CommittableSupplier committableSupplier) {
-    Committable committable = committableSupplier.committable();
+    // The supplier will now call worker.committable() with the correct ID.
+    Committable committable = committableSupplier.committable(commitId);
 
     List<Event> events = Lists.newArrayList();
 
-    committable
-            .writerResults()
+    committable.writerResults().stream()
+            .filter(java.util.Objects::nonNull) // Ensure writerResult is not null
             .forEach(
                     writerResult -> {
                       Event commitResponse =
@@ -168,7 +183,9 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                     .map(
                             topicPartition -> {
                               Offset offset =
-                                      committable.offsetsByTopicPartition().getOrDefault(topicPartition, null);
+                                      committable.offsetsByTopicPartition() == null
+                                              ? null
+                                              : committable.offsetsByTopicPartition().getOrDefault(topicPartition, null);
                               return new TopicPartitionOffset(
                                       topicPartition.topic(),
                                       topicPartition.partition(),
@@ -182,13 +199,19 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
 
     Event commitReady =
             new Event(
-                    config.controlGroupId(),
-                    new TransactionDataComplete(commitId, assignments, tableTxIds));
+                    config.controlGroupId(), new TransactionDataComplete(commitId, assignments, tableTxIds));
     events.add(commitReady);
 
     Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();
-    send(events, offsets, new ConsumerGroupMetadata(config.controlGroupId()));
-    send(ImmutableList.of(), offsets, new ConsumerGroupMetadata(config.connectGroupId()));
+    if (offsets != null && !offsets.isEmpty()) {
+      send(events, offsets, new ConsumerGroupMetadata(config.controlGroupId()));
+      send(ImmutableList.of(), offsets, new ConsumerGroupMetadata(config.connectGroupId()));
+    } else {
+      // TODO Still need to send the data-written/complete events even if no offsets are advanced is this correct looping??
+      for (Event event : events) {
+        send(event);
+      }
+    }
   }
 
   @Override
