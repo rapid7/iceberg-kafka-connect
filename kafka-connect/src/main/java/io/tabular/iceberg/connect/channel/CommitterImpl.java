@@ -178,6 +178,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
 
   public void process() {
     throwExceptionIfCoordinatorIsTerminated();
+    LOG.info("TRACE: I am being called process() in CommitterImpl");
     // Non-blocking poll to look for new events. This should be called periodically.
     consumeAvailable(
             Duration.ZERO,
@@ -190,39 +191,52 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
             });
   }
 
+  // @Override
+  // public boolean commit(CommittableSupplier committableSupplier) {
+  //   throwExceptionIfCoordinatorIsTerminated();
+
+  //   final AtomicBoolean responseSent = new AtomicBoolean(false);
+  //   // Check for a pending START_COMMIT event or an active commit ID.
+  //   consumeAvailable(
+  //           Duration.ZERO,
+  //           envelope -> {
+  //             if (envelope.event().type() == PayloadType.START_COMMIT) {
+  //               UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
+  //               // We have the ID and the supplier, so we can send the response directly.
+  //               worker.setCurrentCommitId(commitId);
+  //               sendCommitResponse(commitId, committableSupplier);
+  //               responseSent.set(true);
+  //             }
+  //             return true;
+  //           });
+  //   // If no START_COMMIT event was found, check if we have an active commit ID.
+  //   if (!responseSent.get()) {
+  //     UUID commitId = worker.currentCommitId();
+  //     if (commitId != null) {
+  //       sendCommitResponse(commitId, committableSupplier);
+  //       responseSent.set(true);
+  //     }
+  //   }
+
+  //   if (!responseSent.get()) {
+  //     LOG.warn(
+  //             "Commit called but no pending START_COMMIT event or active commit ID found, skipping response.");
+  //   }
+
+  //   return responseSent.get();
+  // }
   @Override
   public boolean commit(CommittableSupplier committableSupplier) {
     throwExceptionIfCoordinatorIsTerminated();
-
-    final AtomicBoolean responseSent = new AtomicBoolean(false);
-    // Check for a pending START_COMMIT event or an active commit ID.
-    consumeAvailable(
-            Duration.ZERO,
-            envelope -> {
-              if (envelope.event().type() == PayloadType.START_COMMIT) {
-                UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
-                // We have the ID and the supplier, so we can send the response directly.
-                worker.setCurrentCommitId(commitId);
-                sendCommitResponse(commitId, committableSupplier);
-                responseSent.set(true);
-              }
-              return true;
-            });
-    // If no START_COMMIT event was found, check if we have an active commit ID.
-    if (!responseSent.get()) {
-      UUID commitId = worker.currentCommitId();
-      if (commitId != null) {
-        sendCommitResponse(commitId, committableSupplier);
-        responseSent.set(true);
-      }
+    LOG.info("TRACE: I am being called commit() in CommitterImpl");
+    UUID commitId = worker.currentCommitId();
+    if (commitId != null) {
+      sendCommitResponse(commitId, committableSupplier);
+      return true;
+    } else {
+      LOG.warn("Commit called but no active commit ID found, skipping response.");
+      return false;
     }
-
-    if (!responseSent.get()) {
-      LOG.warn(
-              "Commit called but no pending START_COMMIT event or active commit ID found, skipping response.");
-    }
-
-    return responseSent.get();
   }
 
   @Override

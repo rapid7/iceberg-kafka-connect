@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -18,16 +18,16 @@
  */
 package io.tabular.iceberg.connect;
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import static java.util.stream.Collectors.toList;
+
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.IntStream;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.sink.SinkConnector;
-
-import static io.tabular.iceberg.connect.IcebergSinkConfig.INTERNAL_TRANSACTIONAL_SUFFIX_PROP;
 
 public class IcebergSinkConnector extends SinkConnector {
 
@@ -38,13 +38,9 @@ public class IcebergSinkConnector extends SinkConnector {
     return IcebergSinkConfig.version();
   }
 
-  public static String getVersion() {
-    return IcebergSinkConfig.version();
-  }
-
   @Override
-  public void start(Map<String, String> props) {
-    this.props = props;
+  public void start(Map<String, String> connectorProps) {
+    this.props = connectorProps;
   }
 
   @Override
@@ -54,24 +50,22 @@ public class IcebergSinkConnector extends SinkConnector {
 
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
-    List<Map<String, String>> configs = new ArrayList<>(maxTasks);
-
-    for (int i = 0; i < maxTasks; i++) {
-      Map<String, String> config = new HashMap<>(props);
-      config.put(INTERNAL_TRANSACTIONAL_SUFFIX_PROP, UUID.randomUUID().toString());
-      configs.add(config);
-    }
-
-    return configs;
+    String txnSuffix = "-txn-" + UUID.randomUUID() + "-";
+    return IntStream.range(0, maxTasks)
+            .mapToObj(
+                    i -> {
+                      Map<String, String> map = Maps.newHashMap(props);
+                      map.put(IcebergSinkConfig.INTERNAL_TRANSACTIONAL_SUFFIX_PROP, txnSuffix + i);
+                      return map;
+                    })
+            .collect(toList());
   }
 
   @Override
-  public void stop() {
-    // The IcebergSinkConfig and other resources will be cleaned up by the tasks.
-  }
+  public void stop() {}
 
   @Override
   public ConfigDef config() {
-    return new ConfigDef();
+    return IcebergSinkConfig.CONFIG_DEF;
   }
 }
