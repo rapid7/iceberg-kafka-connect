@@ -142,14 +142,14 @@ class Worker implements Writer, AutoCloseable {
   }
 
   private synchronized void save(SinkRecord record) {
-    if (currentCommitId == null) {
+    if (currentCommitId() == null) {
       // If there's no commit in progress, buffer the record instead of dropping it.
-      LOG.warn(
-              "No active commit in progress, buffering record until commit starts. Topic: {}, Partition: {}, Offset: {}",
-              record.topic(),
-              record.kafkaPartition(),
-              record.kafkaOffset());
-      initialBuffer.add(record);
+//      LOG.debug(
+//              "No active commit in progress, buffering record until commit starts. Topic: {}, Partition: {}, Offset: {}",
+//              record.topic(),
+//              record.kafkaPartition(),
+//              record.kafkaOffset());
+//      initialBuffer.add(record);
       return;
     }
 
