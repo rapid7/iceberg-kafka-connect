@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -45,7 +45,9 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.common.DynConstructors;
 import org.apache.iceberg.connect.events.AvroUtil;
@@ -53,7 +55,7 @@ import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.StartCommit;
-import org.apache.iceberg.connect.events.TableReference; // ADDED
+import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
@@ -92,7 +94,8 @@ class CommitterImplTest {
   private static final String CONNECTOR_NAME = "connector-name";
   private static final String TABLE_1_NAME = "db.tbl1";
   private static final TableIdentifier TABLE_1_IDENTIFIER = TableIdentifier.parse(TABLE_1_NAME);
-  private static final TableReference TABLE_1_REFERENCE = TableReference.of(CATALOG_NAME, TABLE_1_IDENTIFIER); // ADDED
+  private static final TableReference TABLE_1_REFERENCE =
+          TableReference.of(CATALOG_NAME, TABLE_1_IDENTIFIER);
   private static final String CONTROL_TOPIC = "control-topic-name";
   private static final TopicPartition CONTROL_TOPIC_PARTITION =
           new TopicPartition(CONTROL_TOPIC, 0);
@@ -247,7 +250,6 @@ class CommitterImplTest {
     assertSameContentFiles(payload.deleteFiles(), expectedDeleteFiles);
   }
 
-  // CHANGED: Helper method updated to assert on the new event structure
   private void assertDataComplete(
           ProducerRecord<String, byte[]> producerRecord,
           UUID expectedCommitId,
@@ -287,9 +289,24 @@ class CommitterImplTest {
   private OffsetDateTime offsetDateTime(Long ms) {
     return ms == null ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneOffset.UTC);
   }
+    /**
+     * Creates a mock DataFile with a fixed size and record count.
+     * This is used to simulate the data files that would be written during a commit.
+     *
+     * @param path the path of the data file
+     * @return a mock DataFile
+     */
+  private DataFile createDataFile(String path) {
+    return DataFiles.builder(PartitionSpec.unpartitioned())
+            .withPath(path)
+            .withFileSizeInBytes(10)
+            .withRecordCount(1)
+            .build();
+  }
 
   @Test
-  public void testShouldRewindOffsetsToStableControlGroupConsumerOffsetsForAssignedPartitionsOnConstruction() throws IOException {
+  public void testShouldRewindOffsetsToStableControlGroupConsumerOffsetsForAssignedPartitionsOnConstruction()
+          throws IOException {
     SinkTaskContext mockContext = mockContext();
     ArgumentCaptor<Map<TopicPartition, Long>> offsetArgumentCaptor =
             ArgumentCaptor.forClass(Map.class);
@@ -318,7 +335,10 @@ class CommitterImplTest {
                     config.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
     TerminatedCoordinatorThreadFactory coordinatorThreadFactory =
             new TerminatedCoordinatorThreadFactory();
-    CommittableSupplier committableSupplier = () -> { throw new NotImplementedException("Should not be called"); };
+    CommittableSupplier committableSupplier =
+            () -> {
+              throw new NotImplementedException("Should not be called");
+            };
 
     try (CommitterImpl committerImpl =
                  new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
@@ -332,8 +352,6 @@ class CommitterImplTest {
     }
   }
 
-  // Other tests (like testCommitShouldDoNothing...) remain the same as they don't involve Committables
-
   @Test
   public void testCommitShouldRespondToCommitRequest() throws IOException {
     SinkTaskContext mockContext = mockContext();
@@ -343,17 +361,20 @@ class CommitterImplTest {
             ImmutableMap.of(
                     CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    List<DataFile> dataFiles = ImmutableList.of(mock(DataFile.class));
+    List<DataFile> dataFiles = ImmutableList.of(createDataFile("/path/to/data-1.parquet"));
     List<DeleteFile> deleteFiles = ImmutableList.of();
     Types.StructType partitionStruct = Types.StructType.of();
     Map<TopicPartition, Offset> sourceOffsets = ImmutableMap.of(SOURCE_TP0, new Offset(100L, 200L));
 
-    // CHANGED: Create the new transaction object list
-    List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
-            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
-    );
+    List<TableTopicPartitionTransaction> sourceTxIds =
+            ImmutableList.of(
+                    new TableTopicPartitionTransaction(
+                            SOURCE_TP0.topic(),
+                            SOURCE_TP0.partition(),
+                            CATALOG_NAME,
+                            TABLE_1_IDENTIFIER,
+                            100L));
 
-    // CHANGED: Use the new list to construct the Committable
     CommittableSupplier committableSupplier =
             () ->
                     new Committable(
@@ -373,22 +394,14 @@ class CommitterImplTest {
                       CONTROL_TOPIC_PARTITION.partition(),
                       0,
                       UUID.randomUUID().toString(),
-                      AvroUtil.encode(
-                              new Event(
-                                      CONFIG.controlGroupId(),
-                                      new StartCommit(commitId)))));
+                      AvroUtil.encode(new Event(CONFIG.controlGroupId(), new StartCommit(commitId)))));
 
       committer.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();
       assertThat(producer.history()).hasSize(2);
       assertDataWritten(
-              producer.history().get(0),
-              commitId,
-              TABLE_1_IDENTIFIER,
-              dataFiles,
-              deleteFiles);
-      // CHANGED: Assert using the new list
+              producer.history().get(0), commitId, TABLE_1_IDENTIFIER, dataFiles, deleteFiles);
       assertDataComplete(
               producer.history().get(1),
               commitId,
@@ -414,7 +427,6 @@ class CommitterImplTest {
             ImmutableMap.of(
                     CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    // CHANGED: Use an empty list for the new Committable constructor
     CommittableSupplier committableSupplier =
             () -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of());
 
@@ -429,11 +441,7 @@ class CommitterImplTest {
                       CONTROL_TOPIC_PARTITION.partition(),
                       0,
                       UUID.randomUUID().toString(),
-                      AvroUtil.encode(
-                              new Event(
-                                      CONFIG.controlGroupId(),
-                                      new StartCommit(commitId)))));
-
+                      AvroUtil.encode(new Event(CONFIG.controlGroupId(), new StartCommit(commitId)))));
 
       committer.commit(committableSupplier);
 
@@ -443,7 +451,7 @@ class CommitterImplTest {
               producer.history().get(0),
               commitId,
               ImmutableMap.of(SOURCE_TP0, Pair.of(null, null)),
-              ImmutableList.of()); // CHANGED: Assert with empty list
+              ImmutableList.of());
 
       assertThat(producer.consumerGroupOffsetsHistory()).hasSize(0);
     }
@@ -462,16 +470,19 @@ class CommitterImplTest {
             ImmutableMap.of(
                     CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    List<DataFile> dataFiles = ImmutableList.of(mock(DataFile.class));
+    List<DataFile> dataFiles = ImmutableList.of(createDataFile("/path/to/data-2.parquet"));
     List<DeleteFile> deleteFiles = ImmutableList.of();
     Types.StructType partitionStruct = Types.StructType.of();
 
-    // CHANGED: Create the new transaction object list
-    List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
-            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
-    );
+    List<TableTopicPartitionTransaction> sourceTxIds =
+            ImmutableList.of(
+                    new TableTopicPartitionTransaction(
+                            SOURCE_TP0.topic(),
+                            SOURCE_TP0.partition(),
+                            CATALOG_NAME,
+                            TABLE_1_IDENTIFIER,
+                            100L));
 
-    // CHANGED: Use the new list to construct the Committable
     CommittableSupplier committableSupplier =
             () ->
                     new Committable(
@@ -491,28 +502,19 @@ class CommitterImplTest {
                       CONTROL_TOPIC_PARTITION.partition(),
                       0,
                       UUID.randomUUID().toString(),
-                      AvroUtil.encode(
-                              new Event(
-                                      CONFIG.controlGroupId(),
-                                      new StartCommit(commitId)))));
+                      AvroUtil.encode(new Event(CONFIG.controlGroupId(), new StartCommit(commitId)))));
 
       committer.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();
       assertThat(producer.history()).hasSize(2);
       assertDataWritten(
-              producer.history().get(0),
-              commitId,
-              TABLE_1_IDENTIFIER,
-              dataFiles,
-              deleteFiles);
-      // CHANGED: Assert using the new list
+              producer.history().get(0), commitId, TABLE_1_IDENTIFIER, dataFiles, deleteFiles);
       assertDataComplete(
               producer.history().get(1),
               commitId,
               ImmutableMap.of(
-                      sourceTp0, Pair.of(null, null),
-                      sourceTp1, Pair.of(100L, offsetDateTime(200L))),
+                      sourceTp0, Pair.of(null, null), sourceTp1, Pair.of(100L, offsetDateTime(200L))),
               sourceTxIds);
 
       assertThat(producer.consumerGroupOffsetsHistory()).hasSize(2);

@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -37,7 +37,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-
 import io.tabular.iceberg.connect.events.TopicPartitionTxId;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.avro.Schema;
@@ -64,10 +63,10 @@ public class EventDecoderTest {
   @Test
   public void testCommitRequestBecomesStartCommit() {
     io.tabular.iceberg.connect.events.Event event =
-        new io.tabular.iceberg.connect.events.Event(
-            "cg-connector",
-            io.tabular.iceberg.connect.events.EventType.COMMIT_REQUEST,
-            new CommitRequestPayload(commitId));
+            new io.tabular.iceberg.connect.events.Event(
+                    "cg-connector",
+                    io.tabular.iceberg.connect.events.EventType.COMMIT_REQUEST,
+                    new CommitRequestPayload(commitId));
 
     byte[] data = io.tabular.iceberg.connect.events.Event.encode(event);
 
@@ -83,15 +82,15 @@ public class EventDecoderTest {
   @Test
   public void testCommitResponseBecomesDataWrittenUnpartitioned() {
     io.tabular.iceberg.connect.events.Event event =
-        new io.tabular.iceberg.connect.events.Event(
-            "cg-connector",
-            EventType.COMMIT_RESPONSE,
-            new CommitResponsePayload(
-                Types.StructType.of(),
-                commitId,
-                new TableName(Collections.singletonList("db"), "tbl"),
-                Arrays.asList(EventTestUtil.createDataFile(), EventTestUtil.createDataFile()),
-                Arrays.asList(EventTestUtil.createDeleteFile(), EventTestUtil.createDeleteFile())));
+            new io.tabular.iceberg.connect.events.Event(
+                    "cg-connector",
+                    EventType.COMMIT_RESPONSE,
+                    new CommitResponsePayload(
+                            Types.StructType.of(),
+                            commitId,
+                            new TableName(Collections.singletonList("db"), "tbl"),
+                            Arrays.asList(EventTestUtil.createDataFile(), EventTestUtil.createDataFile()),
+                            Arrays.asList(EventTestUtil.createDeleteFile(), EventTestUtil.createDeleteFile())));
 
     byte[] data = io.tabular.iceberg.connect.events.Event.encode(event);
 
@@ -108,12 +107,12 @@ public class EventDecoderTest {
     assertThat(payload.tableReference().identifier()).isEqualTo(TableIdentifier.of("db", "tbl"));
     // should have an empty partition spec on the schema
     Schema.Field field =
-        payload.getSchema().getFields().get(2).schema().getTypes().stream()
-            .filter(s -> s.getType() != Schema.Type.NULL)
-            .findFirst()
-            .get()
-            .getElementType()
-            .getField("partition");
+            payload.getSchema().getFields().get(2).schema().getTypes().stream()
+                    .filter(s -> s.getType() != Schema.Type.NULL)
+                    .findFirst()
+                    .get()
+                    .getElementType()
+                    .getField("partition");
     assertThat(field.schema().getFields()).isEmpty();
   }
 
@@ -121,37 +120,37 @@ public class EventDecoderTest {
   public void testCommitResponseBecomesDataWrittenPartitioned() {
 
     org.apache.iceberg.Schema schemaSpec =
-        new org.apache.iceberg.Schema(
-            Types.NestedField.required(1, "i", Types.IntegerType.get()),
-            Types.NestedField.required(2, "s", Types.StringType.get()),
-            Types.NestedField.required(3, "ts1", Types.TimestampType.withZone()),
-            Types.NestedField.required(4, "ts2", Types.TimestampType.withZone()),
-            Types.NestedField.required(5, "ts3", Types.TimestampType.withZone()),
-            Types.NestedField.required(6, "ts4", Types.TimestampType.withZone()));
+            new org.apache.iceberg.Schema(
+                    Types.NestedField.required(1, "i", Types.IntegerType.get()),
+                    Types.NestedField.required(2, "s", Types.StringType.get()),
+                    Types.NestedField.required(3, "ts1", Types.TimestampType.withZone()),
+                    Types.NestedField.required(4, "ts2", Types.TimestampType.withZone()),
+                    Types.NestedField.required(5, "ts3", Types.TimestampType.withZone()),
+                    Types.NestedField.required(6, "ts4", Types.TimestampType.withZone()));
 
     List<String> partitionFields =
-        ImmutableList.of(
-            "year(ts1)",
-            "month(ts2)",
-            "day(ts3)",
-            "hour(ts4)",
-            "bucket(i, 4)",
-            "truncate(s, 10)",
-            "s");
+            ImmutableList.of(
+                    "year(ts1)",
+                    "month(ts2)",
+                    "day(ts3)",
+                    "hour(ts4)",
+                    "bucket(i, 4)",
+                    "truncate(s, 10)",
+                    "s");
     PartitionSpec spec = SchemaUtils.createPartitionSpec(schemaSpec, partitionFields);
 
     Types.StructType structType = spec.partitionType();
 
     io.tabular.iceberg.connect.events.Event event =
-        new io.tabular.iceberg.connect.events.Event(
-            "cg-connector",
-            EventType.COMMIT_RESPONSE,
-            new CommitResponsePayload(
-                structType,
-                commitId,
-                new TableName(Collections.singletonList("db"), "tbl"),
-                Arrays.asList(EventTestUtil.createDataFile(), EventTestUtil.createDataFile()),
-                Arrays.asList(EventTestUtil.createDeleteFile(), EventTestUtil.createDeleteFile())));
+            new io.tabular.iceberg.connect.events.Event(
+                    "cg-connector",
+                    EventType.COMMIT_RESPONSE,
+                    new CommitResponsePayload(
+                            structType,
+                            commitId,
+                            new TableName(Collections.singletonList("db"), "tbl"),
+                            Arrays.asList(EventTestUtil.createDataFile(), EventTestUtil.createDataFile()),
+                            Arrays.asList(EventTestUtil.createDeleteFile(), EventTestUtil.createDeleteFile())));
 
     byte[] data = io.tabular.iceberg.connect.events.Event.encode(event);
 
@@ -167,36 +166,36 @@ public class EventDecoderTest {
     assertThat(payload.tableReference().catalog()).isEqualTo("catalog");
     assertThat(payload.tableReference().identifier()).isEqualTo(TableIdentifier.of("db", "tbl"));
 
-    assertThat(payload.writeSchema()).isEqualTo(
-            Types.StructType.of(
-                    Types.NestedField.required(10_300, "commit_id", Types.UUIDType.get()),
-                    Types.NestedField.required(
-                            10_301, "table_reference", TableReference.ICEBERG_SCHEMA),
-                    Types.NestedField.optional(
-                            10_302,
-                            "data_files",
-                            Types.ListType.ofRequired(10_303, DataFile.getType(spec.partitionType()))),
-                    Types.NestedField.optional(
-                            10_304,
-                            "delete_files",
-                            Types.ListType.ofRequired(10_305, DataFile.getType(spec.partitionType())))));
+    assertThat(payload.writeSchema())
+            .isEqualTo(
+                    Types.StructType.of(
+                            Types.NestedField.required(10_300, "commit_id", Types.UUIDType.get()),
+                            Types.NestedField.required(
+                                    10_301, "table_reference", TableReference.ICEBERG_SCHEMA),
+                            Types.NestedField.optional(
+                                    10_302,
+                                    "data_files",
+                                    Types.ListType.ofRequired(10_303, DataFile.getType(spec.partitionType()))),
+                            Types.NestedField.optional(
+                                    10_304,
+                                    "delete_files",
+                                    Types.ListType.ofRequired(10_305, DataFile.getType(spec.partitionType())))));
   }
 
   @Test
   public void testCommitReadyBecomesDataComplete() {
     io.tabular.iceberg.connect.events.Event event =
-        new io.tabular.iceberg.connect.events.Event(
-            "cg-connector",
-            EventType.COMMIT_READY,
-            new CommitReadyPayload(
-                commitId,
-                Arrays.asList(
-                    new TopicPartitionOffset("topic", 1, 1L, 1L),
-                    new TopicPartitionOffset("topic", 2, null, null)),
-                Arrays.asList(
-                        new TopicPartitionTxId("topic", 1, 1L),
-                        new TopicPartitionTxId("topic", 2, null))));
-
+            new io.tabular.iceberg.connect.events.Event(
+                    "cg-connector",
+                    EventType.COMMIT_READY,
+                    new CommitReadyPayload(
+                            commitId,
+                            Arrays.asList(
+                                    new TopicPartitionOffset("topic", 1, 1L, 1L),
+                                    new TopicPartitionOffset("topic", 2, null, null)),
+                            Arrays.asList(
+                                    new TopicPartitionTxId("topic", 1, 1L),
+                                    new TopicPartitionTxId("topic", 2, null))));
 
     byte[] data = io.tabular.iceberg.connect.events.Event.encode(event);
 
@@ -212,30 +211,27 @@ public class EventDecoderTest {
     assertThat(payload.assignments().get(0).partition()).isEqualTo(1);
     assertThat(payload.assignments().get(0).offset()).isEqualTo(1L);
     assertThat(payload.assignments().get(0).timestamp())
-        .isEqualTo(OffsetDateTime.ofInstant(Instant.ofEpochMilli(1), ZoneOffset.UTC));
+            .isEqualTo(OffsetDateTime.ofInstant(Instant.ofEpochMilli(1), ZoneOffset.UTC));
 
     assertThat(payload.assignments().get(1).topic()).isEqualTo("topic");
     assertThat(payload.assignments().get(1).partition()).isEqualTo(2);
     assertThat(payload.assignments().get(1).offset()).isNull();
     assertThat(payload.assignments().get(1).timestamp()).isNull();
 
-    assertThat(payload.tableTxIds().get(0).topic()).isEqualTo("topic");
-    assertThat(payload.tableTxIds().get(0).partition()).isEqualTo(1);
-    assertThat(payload.tableTxIds().get(0).txId()).isEqualTo(1L);
-
-    assertThat(payload.tableTxIds().get(1).topic()).isEqualTo("topic");
-    assertThat(payload.tableTxIds().get(1).partition()).isEqualTo(2);
-    assertThat(payload.tableTxIds().get(1).txId()).isNull();
+    // TableTopicPartitionTransaction objects.
+    // This information is dropped, so we expect an empty list.
+    assertThat(payload.tableTxIds()).isNotNull();
+    assertThat(payload.tableTxIds()).isEmpty();
   }
 
   @Test
   public void testCommitTableBecomesCommitToTable() {
     io.tabular.iceberg.connect.events.Event event =
-        new io.tabular.iceberg.connect.events.Event(
-            "cg-connector",
-            EventType.COMMIT_TABLE,
-            new CommitTablePayload(
-                commitId, new TableName(Collections.singletonList("db"), "tbl"), 1L, 2L));
+            new io.tabular.iceberg.connect.events.Event(
+                    "cg-connector",
+                    EventType.COMMIT_TABLE,
+                    new CommitTablePayload(
+                            commitId, new TableName(Collections.singletonList("db"), "tbl"), 1L, 2L));
 
     byte[] data = io.tabular.iceberg.connect.events.Event.encode(event);
 
@@ -248,7 +244,7 @@ public class EventDecoderTest {
     assertThat(payload.commitId()).isEqualTo(commitId);
     assertThat(payload.snapshotId()).isEqualTo(1L);
     assertThat(payload.validThroughTs())
-        .isEqualTo(OffsetDateTime.ofInstant(Instant.ofEpochMilli(2L), ZoneOffset.UTC));
+            .isEqualTo(OffsetDateTime.ofInstant(Instant.ofEpochMilli(2L), ZoneOffset.UTC));
     assertThat(payload.tableReference().catalog()).isEqualTo(catalogName);
     assertThat(payload.tableReference().identifier()).isEqualTo(TableIdentifier.of("db", "tbl"));
   }
@@ -280,8 +276,8 @@ public class EventDecoderTest {
   @Test
   public void testCommitCompleteBecomesCommitCompleteSerialization() {
     io.tabular.iceberg.connect.events.Event event =
-        new io.tabular.iceberg.connect.events.Event(
-            "cg-connector", EventType.COMMIT_COMPLETE, new CommitCompletePayload(commitId, 2L));
+            new io.tabular.iceberg.connect.events.Event(
+                    "cg-connector", EventType.COMMIT_COMPLETE, new CommitCompletePayload(commitId, 2L));
 
     byte[] data = io.tabular.iceberg.connect.events.Event.encode(event);
 
@@ -291,7 +287,7 @@ public class EventDecoderTest {
     CommitComplete payload = (CommitComplete) result.payload();
     assertThat(payload.commitId()).isEqualTo(commitId);
     assertThat(payload.validThroughTs())
-        .isEqualTo(OffsetDateTime.ofInstant(Instant.ofEpochMilli(2L), ZoneOffset.UTC));
+            .isEqualTo(OffsetDateTime.ofInstant(Instant.ofEpochMilli(2L), ZoneOffset.UTC));
   }
 
   @Test

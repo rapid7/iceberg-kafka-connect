@@ -23,7 +23,7 @@ import static java.util.stream.Collectors.toMap;
 
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
-import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction; // ADDED
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.time.Duration;

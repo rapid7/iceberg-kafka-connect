@@ -132,10 +132,8 @@ public abstract class Channel {
             if (event != null) {
               if (event.groupId().equals(groupId)) {
                 LOG.debug("Received event of type: {}", event.type().name());
-                LOG.info("TRACE: Received event of type: {}", event.type().name());
                 if (receiveFn.apply(new Envelope(event, record.partition(), record.offset()))) {
                   LOG.debug("Handled event of type: {}", event.type().name());
-                  LOG.info("TRACE: Handled event of type: {}", event.type().name());
                 }
               }
             }

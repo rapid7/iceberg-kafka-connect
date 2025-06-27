@@ -19,13 +19,14 @@
 package io.tabular.iceberg.connect.events;
 
 import org.apache.avro.Schema;
+import org.apache.avro.generic.IndexedRecord;
 import org.apache.iceberg.avro.AvroSchemaUtil;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.types.Types;
 
 import java.util.List;
 
-public class TopicPartitionTransaction implements org.apache.avro.generic.IndexedRecord {
+public class TopicPartitionTransaction implements IndexedRecord {
 
     private String topic;
     private Integer partition;
