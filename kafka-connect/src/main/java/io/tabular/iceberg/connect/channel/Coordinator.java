@@ -24,19 +24,20 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Utilities;
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
-import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -49,15 +50,18 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
+import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.StartCommit;
 import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.Tasks;
 import org.apache.iceberg.util.ThreadPools;
 import org.apache.kafka.clients.admin.MemberDescription;
+import org.apache.kafka.common.TopicPartition; // ADDED
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,6 +83,8 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final ExecutorService exec;
   private final CommitState commitState;
 
+  private final Map<TableIdentifier, Map<TopicPartition, Long>> highestTxIdsByTable;
+
   public Coordinator(
       Catalog catalog,
       IcebergSinkConfig config,
@@ -95,6 +101,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
     this.exec = ThreadPools.newWorkerPool("iceberg-committer", config.commitThreads());
     this.commitState = new CommitState(config);
+    this.highestTxIdsByTable = Maps.newHashMap();
 
     // initial poll with longer duration so the consumer will initialize...
     consumeAvailable(Duration.ofMillis(1000), this::receive);
@@ -119,23 +126,53 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
   }
 
+  private boolean isCurrentCommit(org.apache.iceberg.connect.events.Payload payload) {
+    if (commitState.currentCommitId() == null) {
+      // No commit in progress, so ignore the event.
+      return false;
+    }
+
+    java.util.UUID eventCommitId = null;
+    if (payload instanceof DataWritten) {
+      eventCommitId = ((DataWritten) payload).commitId();
+    } else if (payload instanceof TransactionDataComplete) {
+      eventCommitId = ((TransactionDataComplete) payload).commitId();
+    }
+
+    if (eventCommitId != null && !commitState.currentCommitId().equals(eventCommitId)) {
+      LOG.warn("Received event for wrong commit ID, ignoring. Current commit ID: {}, Event commit ID: {}",
+              commitState.currentCommitId(), eventCommitId);
+      return false;
+    }
+    return true;
+  }
+
   private boolean receive(Envelope envelope) {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
-        commitState.addResponse(envelope);
+        if (isCurrentCommit(envelope.event().payload())) {
+          commitState.addResponse(envelope);
+        }
         return true;
       case DATA_COMPLETE:
-        commitState.addReady(envelope);
-        if (envelope.event().payload() instanceof TransactionDataComplete) {
-          TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
-          List<TopicPartitionTransaction> txIds = payload.txIds();
-          LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
-          txIds.forEach(
-                  txId -> highestTxIdPerPartition().put(txId.partition(),
-                          compareTxIds(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
-        }
-        if (commitState.isCommitReady(totalPartitionCount)) {
-          commit(false);
+        if (isCurrentCommit(envelope.event().payload())) {
+          commitState.addReady(envelope);
+          // This 'if' is technically redundant now but is safe to keep
+          if (envelope.event().payload() instanceof TransactionDataComplete) {
+            TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
+            List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
+            LOG.debug("Received transaction data complete event with {} txIds", tableTxIds.size());
+            tableTxIds.forEach(txId -> {
+              TableIdentifier tableIdentifier = txId.tableIdentifier();
+              TopicPartition tp = new TopicPartition(txId.topic(), txId.partition());
+              Map<TopicPartition, Long> tableTxMap = highestTxIdsByTable.computeIfAbsent(
+                      tableIdentifier, k -> Maps.newHashMap());
+              tableTxMap.merge(tp, txId.txId(), this::compareTxIds);
+            });
+          }
+          if (commitState.isCommitReady(totalPartitionCount)) {
+            commit(false);
+          }
         }
         return true;
     }
@@ -180,6 +217,7 @@ public class Coordinator extends Channel implements AutoCloseable {
       LOG.warn("Commit failed, will try again next cycle", e);
     } finally {
       commitState.endCurrentCommit();
+      highestTxIdsByTable.clear();
     }
   }
 
@@ -262,11 +300,15 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
-      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
+      Map<TopicPartition, Long> tableHighestTxIds =
+              highestTxIdsByTable.getOrDefault(tableIdentifier, Collections.emptyMap());
+      LOG.debug("Committing to table {}, commit ID {}, vtts {}, data files: {}, delete files: {}, highest txIds: {}",
+              tableIdentifier, commitState.currentCommitId(), vtts, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
+      long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
+      long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
+
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
-
         Map<Integer, List<DataFile>> filesBySpec =
             dataFiles.stream()
                 .collect(Collectors.groupingBy(DataFile::specId, Collectors.toList()));
@@ -306,6 +348,8 @@ public class Coordinator extends Channel implements AutoCloseable {
       }
 
       Long snapshotId = latestSnapshot(table, branch.orElse(null)).snapshotId();
+      LOG.debug("Committed snapshot: snapshotId={}, tableIdentifier={}, commitId={}, vtts={}, txIdValidThrough={}, maxTxId={}, dataFiles={}, deleteFiles={}, highestTxIds={}",
+              snapshotId, tableIdentifier, commitState.currentCommitId(), vtts, txIdValidThrough, maxTxId, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
       Event event =
           new Event(
               config.controlGroupId(),

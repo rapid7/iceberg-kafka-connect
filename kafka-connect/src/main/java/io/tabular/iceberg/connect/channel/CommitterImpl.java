@@ -23,6 +23,8 @@ import static java.util.stream.Collectors.toMap;
 
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
@@ -30,9 +32,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
-import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
@@ -178,14 +177,13 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                 })
             .collect(toList());
 
-    List<TopicPartitionTransaction> txIds = committable.txIdsByTopicPartition().entrySet().stream()
-            .map(entry -> new TopicPartitionTransaction(entry.getKey().topic(), entry.getKey().partition(), entry.getValue()))
-            .collect(toList());
+    //  TableTopicPartitionTransactions now
+    List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
 
     Event commitReady =
-        new Event(
-            config.controlGroupId(),
-            new TransactionDataComplete(commitId, assignments, txIds));
+            new Event(
+                    config.controlGroupId(),
+                    new TransactionDataComplete(commitId, assignments, tableTxIds));
     events.add(commitReady);
 
     Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();

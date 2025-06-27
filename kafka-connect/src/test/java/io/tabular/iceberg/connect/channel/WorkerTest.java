@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -29,6 +29,8 @@ import io.tabular.iceberg.connect.data.IcebergWriter;
 import io.tabular.iceberg.connect.data.IcebergWriterFactory;
 import io.tabular.iceberg.connect.data.WriterResult;
 import io.tabular.iceberg.connect.events.EventTestUtil;
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
+import java.util.List;
 import java.util.Map;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
@@ -70,12 +72,8 @@ public class WorkerTest {
     when(config.catalogName()).thenReturn("catalog");
     Map<String, Object> value = ImmutableMap.of(TRANSACTION_FIELD_NAME, 743);
     Committable committable = workerTest(config, value);
-
-    assertThat(
-            committable
-                    .txIdsByTopicPartition()
-                    .get(committable.txIdsByTopicPartition().keySet().iterator().next()))
-            .isEqualTo(743L);
+    List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
+    assertThat(tableTxIds.get(0).txId()).isEqualTo(743L);
   }
 
   private Committable workerTest(IcebergSinkConfig config, Map<String, Object> value) {
@@ -91,12 +89,14 @@ public class WorkerTest {
     IcebergWriterFactory writerFactory = mock(IcebergWriterFactory.class);
     when(writerFactory.createWriter(any(), any(), anyBoolean())).thenReturn(writer);
 
-    Writer worker = new Worker(config, writerFactory);
+    Worker worker = new Worker(config, writerFactory);
 
     // save a record
     SinkRecord rec = new SinkRecord(SRC_TOPIC_NAME, 0, null, "key", null, value, 0L);
     worker.write(ImmutableList.of(rec));
 
+    // Now calling beginCommit() before committable() to initialize internal state for this change to work
+    worker.beginCommit();
     Committable committable = worker.committable();
 
     assertThat(committable.offsetsByTopicPartition()).hasSize(1);
