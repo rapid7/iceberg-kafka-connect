@@ -25,6 +25,7 @@ import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
 import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
+
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
@@ -32,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
@@ -54,152 +56,152 @@ import org.slf4j.LoggerFactory;
 
 public class CommitterImpl extends Channel implements Committer, AutoCloseable {
 
-  private static final Logger LOG = LoggerFactory.getLogger(CommitterImpl.class);
-  private final SinkTaskContext context;
-  private final IcebergSinkConfig config;
-  private final Optional<CoordinatorThread> maybeCoordinatorThread;
+    private static final Logger LOG = LoggerFactory.getLogger(CommitterImpl.class);
+    private final SinkTaskContext context;
+    private final IcebergSinkConfig config;
+    private final Optional<CoordinatorThread> maybeCoordinatorThread;
 
-  public CommitterImpl(SinkTaskContext context, IcebergSinkConfig config, Catalog catalog) {
-    this(context, config, catalog, new KafkaClientFactory(config.kafkaProps()));
-  }
-
-  private CommitterImpl(
-          SinkTaskContext context,
-          IcebergSinkConfig config,
-          Catalog catalog,
-          KafkaClientFactory kafkaClientFactory) {
-    this(
-            context,
-            config,
-            kafkaClientFactory,
-            new CoordinatorThreadFactoryImpl(catalog, kafkaClientFactory));
-  }
-
-  @VisibleForTesting
-  CommitterImpl(
-          SinkTaskContext context,
-          IcebergSinkConfig config,
-          KafkaClientFactory clientFactory,
-          CoordinatorThreadFactory coordinatorThreadFactory) {
-    // pass transient consumer group ID to which we never commit offsets
-    super(
-            "committer",
-            IcebergSinkConfig.DEFAULT_CONTROL_GROUP_PREFIX + UUID.randomUUID(),
-            config,
-            clientFactory);
-
-    this.context = context;
-    this.config = config;
-
-    this.maybeCoordinatorThread = coordinatorThreadFactory.create(context, config);
-
-    // The source-of-truth for source-topic offsets is the control-group-id
-    Map<TopicPartition, Long> stableConsumerOffsets =
-            fetchStableConsumerOffsets(config.controlGroupId());
-    // Rewind kafka connect consumer to avoid duplicates
-    context.offset(stableConsumerOffsets);
-
-    consumeAvailable(
-            // initial poll with longer duration so the consumer will initialize...
-            Duration.ofMillis(1000),
-            envelope ->
-                    receive(
-                            envelope,
-                            // CommittableSupplier that always returns empty committables
-                            () -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
-  }
-
-  private Map<TopicPartition, Long> fetchStableConsumerOffsets(String groupId) {
-    try {
-      ListConsumerGroupOffsetsResult response =
-              admin()
-                      .listConsumerGroupOffsets(
-                              groupId, new ListConsumerGroupOffsetsOptions().requireStable(true));
-      return response.partitionsToOffsetAndMetadata().get().entrySet().stream()
-              .filter(entry -> context.assignment().contains(entry.getKey()))
-              .collect(toMap(Map.Entry::getKey, entry -> entry.getValue().offset()));
-    } catch (InterruptedException | ExecutionException e) {
-      throw new ConnectException(e);
+    public CommitterImpl(SinkTaskContext context, IcebergSinkConfig config, Catalog catalog) {
+        this(context, config, catalog, new KafkaClientFactory(config.kafkaProps()));
     }
-  }
 
-  private void throwExceptionIfCoordinatorIsTerminated() {
-    if (maybeCoordinatorThread.map(CoordinatorThread::isTerminated).orElse(false)) {
-      throw new IllegalStateException("Coordinator unexpectedly terminated");
+    private CommitterImpl(
+            SinkTaskContext context,
+            IcebergSinkConfig config,
+            Catalog catalog,
+            KafkaClientFactory kafkaClientFactory) {
+        this(
+                context,
+                config,
+                kafkaClientFactory,
+                new CoordinatorThreadFactoryImpl(catalog, kafkaClientFactory));
     }
-  }
 
-  private boolean receive(Envelope envelope, CommittableSupplier committableSupplier) {
-    if (envelope.event().type() == PayloadType.START_COMMIT) {
-      UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
-      sendCommitResponse(commitId, committableSupplier);
-      return true;
+    @VisibleForTesting
+    CommitterImpl(
+            SinkTaskContext context,
+            IcebergSinkConfig config,
+            KafkaClientFactory clientFactory,
+            CoordinatorThreadFactory coordinatorThreadFactory) {
+        // pass transient consumer group ID to which we never commit offsets
+        super(
+                "committer",
+                IcebergSinkConfig.DEFAULT_CONTROL_GROUP_PREFIX + UUID.randomUUID(),
+                config,
+                clientFactory);
+
+        this.context = context;
+        this.config = config;
+
+        this.maybeCoordinatorThread = coordinatorThreadFactory.create(context, config);
+
+        // The source-of-truth for source-topic offsets is the control-group-id
+        Map<TopicPartition, Long> stableConsumerOffsets =
+                fetchStableConsumerOffsets(config.controlGroupId());
+        // Rewind kafka connect consumer to avoid duplicates
+        context.offset(stableConsumerOffsets);
+
+        consumeAvailable(
+                // initial poll with longer duration so the consumer will initialize...
+                Duration.ofMillis(1000),
+                envelope ->
+                        receive(
+                                envelope,
+                                // CommittableSupplier that always returns empty committables
+                                () -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
     }
-    return false;
-  }
 
-  private void sendCommitResponse(UUID commitId, CommittableSupplier committableSupplier) {
-    Committable committable = committableSupplier.committable();
+    private Map<TopicPartition, Long> fetchStableConsumerOffsets(String groupId) {
+        try {
+            ListConsumerGroupOffsetsResult response =
+                    admin()
+                            .listConsumerGroupOffsets(
+                                    groupId, new ListConsumerGroupOffsetsOptions().requireStable(true));
+            return response.partitionsToOffsetAndMetadata().get().entrySet().stream()
+                    .filter(entry -> context.assignment().contains(entry.getKey()))
+                    .collect(toMap(Map.Entry::getKey, entry -> entry.getValue().offset()));
+        } catch (InterruptedException | ExecutionException e) {
+            throw new ConnectException(e);
+        }
+    }
 
-    List<Event> events = Lists.newArrayList();
+    private void throwExceptionIfCoordinatorIsTerminated() {
+        if (maybeCoordinatorThread.map(CoordinatorThread::isTerminated).orElse(false)) {
+            throw new IllegalStateException("Coordinator unexpectedly terminated");
+        }
+    }
 
-    committable
-            .writerResults()
-            .forEach(
-                    writerResult -> {
-                      Event commitResponse =
-                              new Event(
-                                      config.controlGroupId(),
-                                      new DataWritten(
-                                              writerResult.partitionStruct(),
-                                              commitId,
-                                              TableReference.of(config.catalogName(), writerResult.tableIdentifier()),
-                                              writerResult.dataFiles(),
-                                              writerResult.deleteFiles()));
+    private boolean receive(Envelope envelope, CommittableSupplier committableSupplier) {
+        if (envelope.event().type() == PayloadType.START_COMMIT) {
+            UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
+            sendCommitResponse(commitId, committableSupplier);
+            return true;
+        }
+        return false;
+    }
 
-                      events.add(commitResponse);
-                    });
+    private void sendCommitResponse(UUID commitId, CommittableSupplier committableSupplier) {
+        Committable committable = committableSupplier.committable();
 
-    // include all assigned topic partitions even if no messages were read
-    // from a partition, as the coordinator will use that to determine
-    // when all data for a commit has been received
-    List<TopicPartitionOffset> assignments =
-            context.assignment().stream()
-                    .map(
-                            topicPartition -> {
-                              Offset offset =
-                                      committable.offsetsByTopicPartition().getOrDefault(topicPartition, null);
-                              return new TopicPartitionOffset(
-                                      topicPartition.topic(),
-                                      topicPartition.partition(),
-                                      offset == null ? null : offset.offset(),
-                                      offset == null ? null : offset.timestamp());
-                            })
-                    .collect(toList());
+        List<Event> events = Lists.newArrayList();
 
-    //  TableTopicPartitionTransactions now
-    List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
+        committable
+                .writerResults()
+                .forEach(
+                        writerResult -> {
+                            Event commitResponse =
+                                    new Event(
+                                            config.controlGroupId(),
+                                            new DataWritten(
+                                                    writerResult.partitionStruct(),
+                                                    commitId,
+                                                    TableReference.of(config.catalogName(), writerResult.tableIdentifier()),
+                                                    writerResult.dataFiles(),
+                                                    writerResult.deleteFiles()));
 
-    Event commitReady =
-            new Event(
-                    config.controlGroupId(),
-                    new TransactionDataComplete(commitId, assignments, tableTxIds));
-    events.add(commitReady);
+                            events.add(commitResponse);
+                        });
 
-    Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();
-    send(events, offsets, new ConsumerGroupMetadata(config.controlGroupId()));
-    send(ImmutableList.of(), offsets, new ConsumerGroupMetadata(config.connectGroupId()));
-  }
+        // include all assigned topic partitions even if no messages were read
+        // from a partition, as the coordinator will use that to determine
+        // when all data for a commit has been received
+        List<TopicPartitionOffset> assignments =
+                context.assignment().stream()
+                        .map(
+                                topicPartition -> {
+                                    Offset offset =
+                                            committable.offsetsByTopicPartition().getOrDefault(topicPartition, null);
+                                    return new TopicPartitionOffset(
+                                            topicPartition.topic(),
+                                            topicPartition.partition(),
+                                            offset == null ? null : offset.offset(),
+                                            offset == null ? null : offset.timestamp());
+                                })
+                        .collect(toList());
 
-  @Override
-  public void commit(CommittableSupplier committableSupplier) {
-    throwExceptionIfCoordinatorIsTerminated();
-    consumeAvailable(Duration.ZERO, envelope -> receive(envelope, committableSupplier));
-  }
+        //  TableTopicPartitionTransactions now
+        List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
 
-  @Override
-  public void close() throws IOException {
-    stop();
-    maybeCoordinatorThread.ifPresent(CoordinatorThread::terminate);
-  }
+        Event commitReady =
+                new Event(
+                        config.controlGroupId(),
+                        new TransactionDataComplete(commitId, assignments, tableTxIds));
+        events.add(commitReady);
+
+        Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();
+        send(events, offsets, new ConsumerGroupMetadata(config.controlGroupId()));
+        send(ImmutableList.of(), offsets, new ConsumerGroupMetadata(config.connectGroupId()));
+    }
+
+    @Override
+    public void commit(CommittableSupplier committableSupplier) {
+        throwExceptionIfCoordinatorIsTerminated();
+        consumeAvailable(Duration.ZERO, envelope -> receive(envelope, committableSupplier));
+    }
+
+    @Override
+    public void close() throws IOException {
+        stop();
+        maybeCoordinatorThread.ifPresent(CoordinatorThread::terminate);
+    }
 }
