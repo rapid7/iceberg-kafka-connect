@@ -52,6 +52,8 @@ class Worker implements Writer, AutoCloseable {
   private final Map<TopicPartition, Offset> sourceOffsets;
   private final Map<TableIdentifier, Map<TopicPartition, Long>> txIdsByTable;
 
+  private List<TableTopicPartitionTransaction> getMeMyTableTxIdsNai;
+
   Worker(IcebergSinkConfig config, Catalog catalog) {
     this(config, new IcebergWriterFactory(catalog, config));
   }
@@ -65,28 +67,35 @@ class Worker implements Writer, AutoCloseable {
     this.txIdsByTable = Maps.newConcurrentMap();
   }
 
-  @Override
-  public synchronized Committable committable() {
-    List<WriterResult> writeResults =
-            writers.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
-
-    Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
-    List<TableTopicPartitionTransaction> tableTxIds = Lists.newArrayList();
+  public synchronized void beginCommit() {
+    this.getMeMyTableTxIdsNai = Lists.newArrayList();
     txIdsByTable.forEach((tableIdentifier, partitionTxIds) -> {
       String catalogName = config.catalogName();
       partitionTxIds.forEach((tp, txId) ->
-              tableTxIds.add(new TableTopicPartitionTransaction(
+              getMeMyTableTxIdsNai.add(new TableTopicPartitionTransaction(
                       tp.topic(), tp.partition(), catalogName, tableIdentifier, txId))
       );
     });
+
+    LOG.info("Beginning commit. Captured {} pending transaction IDs.", getMeMyTableTxIdsNai.size());
+  }
+
+  @Override
+  public synchronized Committable committable() {
+
+    List<WriterResult> writeResults =
+            writers.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
+    Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
+    Committable result = new Committable(offsets, getMeMyTableTxIdsNai, writeResults);
 
     LOG.info("TRACE: Committable ready. txId map: {}", txIdsByTable);
 
     writers.clear();
     sourceOffsets.clear();
     txIdsByTable.clear();
+    getMeMyTableTxIdsNai = null;
 
-    return new Committable(offsets, tableTxIds, writeResults);
+    return result;
   }
 
   @Override
