@@ -89,7 +89,6 @@ public class TopicPartitionTransaction implements IndexedRecord {
                 throw new IllegalArgumentException("Unknown field index: " + i);
         }
     }
-
     @Override
     public Object get(int i) {
         switch (positionToId(i, avroSchema)) {
