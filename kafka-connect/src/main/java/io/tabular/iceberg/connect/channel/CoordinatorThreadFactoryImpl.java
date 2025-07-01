@@ -70,15 +70,18 @@ class CoordinatorThreadFactoryImpl implements CoordinatorThreadFactory {
 
   @Override
   public Optional<CoordinatorThread> create(SinkTaskContext context, IcebergSinkConfig config) {
+    LOG.info("Attempting to create coordinator thread for group: {}", config.connectGroupId());
     CoordinatorThread thread = null;
 
     ConsumerGroupDescription groupDesc;
     try (Admin admin = kafkaClientFactory.createAdmin()) {
       groupDesc = KafkaUtils.consumerGroupDescription(config.connectGroupId(), admin);
+      LOG.info("Consumer group state: {}", groupDesc.state());
     }
 
     if (groupDesc.state() == ConsumerGroupState.STABLE) {
       Collection<MemberDescription> members = groupDesc.members();
+      LOG.info("Group is STABLE with {} members", members.size());
       if (isLeader(members, context.assignment())) {
         LOG.info("Task elected leader, starting commit coordinator");
         Coordinator coordinator = new Coordinator(catalog, config, members, kafkaClientFactory);

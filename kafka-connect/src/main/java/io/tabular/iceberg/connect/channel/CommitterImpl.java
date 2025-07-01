@@ -41,6 +41,7 @@ import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.connect.events.TopicPartitionOffset;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsOptions;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult;
@@ -57,15 +58,17 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   private final SinkTaskContext context;
   private final IcebergSinkConfig config;
   private final Optional<CoordinatorThread> maybeCoordinatorThread;
-  private final Worker worker;
 
-  public CommitterImpl(SinkTaskContext context, IcebergSinkConfig config, Catalog catalog, Worker worker) {
+  private CommitterImpl(
+          SinkTaskContext context,
+          IcebergSinkConfig config,
+          Catalog catalog,
+          KafkaClientFactory kafkaClientFactory) {
     this(
             context,
             config,
-            new KafkaClientFactory(config.kafkaProps()),
-            new CoordinatorThreadFactoryImpl(catalog, new KafkaClientFactory(config.kafkaProps())),
-            worker);
+            kafkaClientFactory,
+            new CoordinatorThreadFactoryImpl(catalog, kafkaClientFactory));
   }
 
   @VisibleForTesting
@@ -73,25 +76,29 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
           SinkTaskContext context,
           IcebergSinkConfig config,
           KafkaClientFactory clientFactory,
-          CoordinatorThreadFactory coordinatorThreadFactory,
-          Worker worker) {
+          CoordinatorThreadFactory coordinatorThreadFactory) {
     super(
             "committer",
             IcebergSinkConfig.DEFAULT_CONTROL_GROUP_PREFIX + UUID.randomUUID(),
             config,
             clientFactory);
 
+    LOG.info("CommitterImpl constructor called with config: {}", config);
+
     this.context = context;
     this.config = config;
-    this.worker = worker;
+
+    LOG.info("About to create coordinator thread via factory");
     this.maybeCoordinatorThread = coordinatorThreadFactory.create(context, config);
+    LOG.info("Coordinator thread creation attempt completed, result: {}",
+            maybeCoordinatorThread.isPresent() ? "present" : "not present");
 
     Map<TopicPartition, Long> stableConsumerOffsets =
             fetchStableConsumerOffsets(config.controlGroupId());
     context.offset(stableConsumerOffsets);
 
     // This initial poll is for initialization, which is fine.
-    consumeAvailable(Duration.ofMillis(1000), envelope -> receive(envelope, this.worker));
+    consumeAvailable(Duration.ofMillis(1000), envelope -> receive(envelope, commitId -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
   }
 
 
