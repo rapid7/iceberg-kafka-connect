@@ -175,6 +175,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   @Override
   public void commit(CommittableSupplier committableSupplier) {
     throwExceptionIfCoordinatorIsTerminated();
+    LOG.info("Committing committable {}", committableSupplier);
     consumeAvailable(Duration.ZERO, envelope -> receive(envelope, committableSupplier));
   }
 

@@ -120,6 +120,7 @@ public abstract class Channel {
   }
 
   protected void consumeAvailable(Duration pollDuration, Function<Envelope, Boolean> receiveFn) {
+    LOG.info("Polling for events on control topic: {}", controlTopic);
     ConsumerRecords<String, byte[]> records = consumer.poll(pollDuration);
     while (!records.isEmpty()) {
       records.forEach(
