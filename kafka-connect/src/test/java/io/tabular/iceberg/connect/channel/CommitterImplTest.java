@@ -353,14 +353,18 @@ class CommitterImplTest {
             new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
     );
 
-    // CHANGED: Use the new list to construct the Committable
     CommittableSupplier committableSupplier =
             (id) ->
                     new Committable(
                             sourceOffsets,
                             sourceTxIds,
                             ImmutableList.of(
-                                    new WriterResult(TABLE_1_IDENTIFIER, dataFiles, deleteFiles, partitionStruct)));
+                                    new WriterResult(
+                                            TABLE_1_IDENTIFIER,
+                                            dataFiles,
+                                            deleteFiles,
+                                            partitionStruct,
+                                            ImmutableMap.of(SOURCE_TP0, 100L))));
 
     try (CommitterImpl committerImpl =
                  new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
@@ -426,9 +430,11 @@ class CommitterImplTest {
             ImmutableMap.of(
                     CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    // CHANGED: Use an empty list for the new Committable constructor
     CommittableSupplier committableSupplier =
-            (id) -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of());
+            (id) -> new Committable(
+                    ImmutableMap.of(),
+                    ImmutableList.of(),
+                    ImmutableList.of());
 
     try (CommitterImpl committerImpl =
                  new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {
@@ -478,19 +484,23 @@ class CommitterImplTest {
     List<DeleteFile> deleteFiles = ImmutableList.of();
     Types.StructType partitionStruct = Types.StructType.of();
 
-    // CHANGED: Create the new transaction object list
     List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
             new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
     );
 
-    // CHANGED: Use the new list to construct the Committable
     CommittableSupplier committableSupplier =
             (id) ->
                     new Committable(
-                            ImmutableMap.of(sourceTp1, new Offset(100L, 200L)),
+                            ImmutableMap.of(
+                                    sourceTp1, new Offset(100L, 200L)),
                             sourceTxIds,
                             ImmutableList.of(
-                                    new WriterResult(TABLE_1_IDENTIFIER, dataFiles, deleteFiles, partitionStruct)));
+                                    new WriterResult(
+                                            TABLE_1_IDENTIFIER,
+                                            dataFiles,
+                                            deleteFiles,
+                                            partitionStruct,
+                                            ImmutableMap.of(sourceTp1, 100L))));
 
     try (CommitterImpl committerImpl =
                  new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory, mockWorker)) {

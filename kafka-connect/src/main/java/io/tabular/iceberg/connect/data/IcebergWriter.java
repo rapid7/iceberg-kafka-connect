@@ -24,12 +24,16 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.TaskWriter;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.slf4j.Logger;
@@ -38,11 +42,13 @@ import org.slf4j.LoggerFactory;
 public class IcebergWriter implements RecordWriter {
 
   private static final Logger LOG = LoggerFactory.getLogger(IcebergWriter.class);
+  private static final String COL_TXID = "txid";
 
   private final Table table;
   private final String tableName;
   private final IcebergSinkConfig config;
   private final List<WriterResult> writerResults;
+  private final Map<TopicPartition, Long> partitionMaxTxids = Maps.newHashMap();
 
   private RecordConverter recordConverter;
   private TaskWriter<Record> writer;
@@ -65,6 +71,11 @@ public class IcebergWriter implements RecordWriter {
     try {
       // TODO: config to handle tombstones instead of always ignoring?
       if (record.value() != null) {
+        Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
+        if (txId != null) {
+          TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
+          partitionMaxTxids.merge(tp, txId, Long::max);
+        }
         Record row = convertToRow(record);
         String cdcField = config.tablesCdcField();
         if (cdcField == null) {
@@ -140,12 +151,17 @@ public class IcebergWriter implements RecordWriter {
       throw new UncheckedIOException(e);
     }
 
-    writerResults.add(
-        new WriterResult(
-            TableIdentifier.parse(tableName),
-            Arrays.asList(writeResult.dataFiles()),
-            Arrays.asList(writeResult.deleteFiles()),
-            table.spec().partitionType()));
+    if (writeResult.dataFiles().length > 0 || writeResult.deleteFiles().length > 0) {
+      writerResults.add(
+              new WriterResult(
+                      TableIdentifier.parse(tableName),
+                      Arrays.asList(writeResult.dataFiles()),
+                      Arrays.asList(writeResult.deleteFiles()),
+                      table.spec().partitionType(),
+                      org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap.copyOf(partitionMaxTxids)));
+
+      partitionMaxTxids.clear();
+    }
   }
 
   @Override

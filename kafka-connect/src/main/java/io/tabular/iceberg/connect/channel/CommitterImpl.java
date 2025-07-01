@@ -32,7 +32,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
@@ -191,45 +190,11 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
             });
   }
 
-  // @Override
-  // public boolean commit(CommittableSupplier committableSupplier) {
-  //   throwExceptionIfCoordinatorIsTerminated();
-
-  //   final AtomicBoolean responseSent = new AtomicBoolean(false);
-  //   // Check for a pending START_COMMIT event or an active commit ID.
-  //   consumeAvailable(
-  //           Duration.ZERO,
-  //           envelope -> {
-  //             if (envelope.event().type() == PayloadType.START_COMMIT) {
-  //               UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
-  //               // We have the ID and the supplier, so we can send the response directly.
-  //               worker.setCurrentCommitId(commitId);
-  //               sendCommitResponse(commitId, committableSupplier);
-  //               responseSent.set(true);
-  //             }
-  //             return true;
-  //           });
-  //   // If no START_COMMIT event was found, check if we have an active commit ID.
-  //   if (!responseSent.get()) {
-  //     UUID commitId = worker.currentCommitId();
-  //     if (commitId != null) {
-  //       sendCommitResponse(commitId, committableSupplier);
-  //       responseSent.set(true);
-  //     }
-  //   }
-
-  //   if (!responseSent.get()) {
-  //     LOG.warn(
-  //             "Commit called but no pending START_COMMIT event or active commit ID found, skipping response.");
-  //   }
-
-  //   return responseSent.get();
-  // }
   @Override
   public boolean commit(CommittableSupplier committableSupplier) {
     throwExceptionIfCoordinatorIsTerminated();
     LOG.info("TRACE: I am being called commit() in CommitterImpl");
-    UUID commitId = worker.currentCommitId();
+    UUID commitId = worker.getCurrentCommitId();
     if (commitId != null) {
       sendCommitResponse(commitId, committableSupplier);
       return true;

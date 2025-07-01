@@ -39,6 +39,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.junit.jupiter.api.Test;
 
@@ -77,12 +78,6 @@ public class WorkerTest {
     Committable committable = workerTest(config, value);
     List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
     assertThat(tableTxIds.get(0).txId()).isEqualTo(743L);
-//
-//    assertThat(
-//            committable
-//                    .txIdsByTopicPartition()
-//                    .get(committable.txIdsByTopicPartition().keySet().iterator().next()))
-//            .isEqualTo(743L);
   }
 
   private Committable workerTest(IcebergSinkConfig config, Map<String, Object> value) {
@@ -91,7 +86,8 @@ public class WorkerTest {
                     TableIdentifier.parse(TABLE_NAME),
                     ImmutableList.of(EventTestUtil.createDataFile()),
                     ImmutableList.of(),
-                    StructType.of());
+                    StructType.of(),
+                    ImmutableMap.of(new TopicPartition(SRC_TOPIC_NAME, 0), 0L));
     IcebergWriter writer = mock(IcebergWriter.class);
     when(writer.complete()).thenReturn(ImmutableList.of(writeResult));
 

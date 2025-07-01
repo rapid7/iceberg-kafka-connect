@@ -28,12 +28,11 @@ import io.tabular.iceberg.connect.data.Utilities;
 import io.tabular.iceberg.connect.data.WriterResult;
 import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
+
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
@@ -45,22 +44,14 @@ import org.apache.kafka.connect.sink.SinkRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class Worker implements Writer, AutoCloseable {
+class Worker implements Writer, AutoCloseable, CommittableSupplier {
 
   private static final Logger LOG = LoggerFactory.getLogger(Worker.class);
-  private static final String COL_TXID = "txid";
   private final IcebergSinkConfig config;
   private final IcebergWriterFactory writerFactory;
-
-  private volatile UUID currentCommitId;
-  private final Map<UUID, Map<String, RecordWriter>> writersByCommit = Maps.newConcurrentMap();
-  private final Map<UUID, Map<TopicPartition, Offset>> sourceOffsetsByCommit =
-          Maps.newConcurrentMap();
-  private final Map<UUID, Map<TableIdentifier, Map<TopicPartition, Long>>> txIdsByCommit =
-          Maps.newConcurrentMap();
-
-  // Buffer for records that arrive before the first commit ID is known.
-  private final List<SinkRecord> initialBuffer = new CopyOnWriteArrayList<>();
+  private final Map<String, RecordWriter> writers;
+  private final Map<TopicPartition, Offset> sourceOffsets;
+  private UUID currentCommitId;
 
   Worker(IcebergSinkConfig config, Catalog catalog) {
     this(config, new IcebergWriterFactory(catalog, config));
@@ -70,68 +61,73 @@ class Worker implements Writer, AutoCloseable {
   Worker(IcebergSinkConfig config, IcebergWriterFactory writerFactory) {
     this.config = config;
     this.writerFactory = writerFactory;
+    this.writers = Maps.newConcurrentMap();
+    this.sourceOffsets = Maps.newConcurrentMap();
   }
 
-  public synchronized void setCurrentCommitId(UUID commitId) {
-    LOG.info("Starting collection for new commit ID: {}", commitId);
+  public void setCurrentCommitId(UUID commitId) {
+    LOG.info("Setting current commit ID: {}", commitId);
     this.currentCommitId = commitId;
-    // Once the first commit starts, process any records that were buffered.
-    if (!initialBuffer.isEmpty()) {
-      List<SinkRecord> recordsToProcess = new ArrayList<>(initialBuffer);
-      initialBuffer.clear();
-      LOG.info(
-              "Processing {} buffered records for new commit ID {}",
-              recordsToProcess.size(),
-              commitId);
-      // Re-run the save logic for the buffered records, now with a valid commit ID.
-      recordsToProcess.forEach(this::save);
-    }
   }
 
-  public UUID currentCommitId() {
+  public UUID getCurrentCommitId() {
     return this.currentCommitId;
   }
 
   @Override
   public synchronized Committable committable(UUID commitId) {
-    Map<String, RecordWriter> writersForCommit = writersByCommit.remove(commitId);
-    Map<TopicPartition, Offset> offsetsForCommit = sourceOffsetsByCommit.remove(commitId);
-    Map<TableIdentifier, Map<TopicPartition, Long>> txIdsForCommit = txIdsByCommit.remove(commitId);
-
-    if (writersForCommit == null && offsetsForCommit == null && txIdsForCommit == null) {
-      return new Committable(Maps.newHashMap(), Lists.newArrayList(), Lists.newArrayList());
+    if (currentCommitId == null) {
+      LOG.warn("Cannot create committable: currentCommitId is null");
+      return null;
     }
-
-    List<WriterResult> writeResults =
-            writersForCommit.values().stream()
+    if (!currentCommitId.equals(commitId)) {
+      LOG.warn("Cannot create committable: IDs don't match. Current: {}, Requested: {}",
+              currentCommitId, commitId);
+      return null;
+    }
+    LOG.info("Creating committable with {} writers", writers.size());
+    // Reuse existing logic from the committable() method
+    List<WriterResult> writerResults =
+            writers.values().stream()
                     .flatMap(writer -> writer.complete().stream())
                     .collect(toList());
 
-    List<TableTopicPartitionTransaction> tableTxIds = Lists.newArrayList();
-    if (txIdsForCommit != null) {
-      txIdsForCommit.forEach(
-              (tableIdentifier, partitionTxIds) -> {
-                String catalogName = config.catalogName();
-                partitionTxIds.forEach(
-                        (tp, txId) ->
-                                tableTxIds.add(
-                                        new TableTopicPartitionTransaction(
-                                                tp.topic(), tp.partition(), catalogName, tableIdentifier, txId)));
-              });
-    }
+    Map<TableIdentifier, Map<TopicPartition, Long>> aggregatedTxIds = Maps.newHashMap();
+    writerResults.forEach(res -> {
+      if (res.partitionMaxTxids() != null && !res.partitionMaxTxids().isEmpty()) {
+        Map<TopicPartition, Long> tableTxIds =
+                aggregatedTxIds.computeIfAbsent(res.tableIdentifier(), k -> Maps.newHashMap());
+        res.partitionMaxTxids()
+                .forEach((tp, txid) -> tableTxIds.merge(tp, txid, Long::max));
+      }
+    });
 
-    LOG.info(
-            "Created committable for commit ID {} with {} table txns", commitId, tableTxIds.size());
-    return new Committable(offsetsForCommit, tableTxIds, writeResults);
+    List<TableTopicPartitionTransaction> finalTableTxIds = Lists.newArrayList();
+    aggregatedTxIds.forEach((tableIdentifier, partitionTxIds) -> {
+      String catalogName = config.catalogName();
+      partitionTxIds.forEach((tp, txId) ->
+              finalTableTxIds.add(
+                      new TableTopicPartitionTransaction(
+                              tp.topic(), tp.partition(), catalogName, tableIdentifier, txId)));
+    });
+
+    LOG.info("Committable ready. Found {} transaction IDs from {} writer results.",
+            finalTableTxIds.size(), writerResults.size());
+
+    Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
+    Committable result = new Committable(offsets, finalTableTxIds, writerResults);
+
+    writers.clear();
+    sourceOffsets.clear();
+
+    return result;
   }
 
   @Override
   public synchronized void close() throws IOException {
-    writersByCommit.values().forEach(map -> map.values().forEach(RecordWriter::close));
-    writersByCommit.clear();
-    sourceOffsetsByCommit.clear();
-    txIdsByCommit.clear();
-    initialBuffer.clear();
+    writers.values().forEach(RecordWriter::close);
+    writers.clear();
+    sourceOffsets.clear();
   }
 
   @Override
@@ -142,20 +138,7 @@ class Worker implements Writer, AutoCloseable {
   }
 
   private synchronized void save(SinkRecord record) {
-    if (currentCommitId() == null) {
-      // If there's no commit in progress, buffer the record instead of dropping it.
-//      LOG.debug(
-//              "No active commit in progress, buffering record until commit starts. Topic: {}, Partition: {}, Offset: {}",
-//              record.topic(),
-//              record.kafkaPartition(),
-//              record.kafkaOffset());
-//      initialBuffer.add(record);
-      return;
-    }
-
-    Map<TopicPartition, Offset> currentOffsets =
-            sourceOffsetsByCommit.computeIfAbsent(currentCommitId, k -> Maps.newConcurrentMap());
-    currentOffsets.put(
+    sourceOffsets.put(
             new TopicPartition(record.topic(), record.kafkaPartition()),
             new Offset(record.kafkaOffset() + 1, record.timestamp()));
 
@@ -166,54 +149,26 @@ class Worker implements Writer, AutoCloseable {
       routeValue = extractRouteValue(record.value(), routeField);
       if (routeValue != null) {
         String tableName = routeValue.toLowerCase();
-        writerForTable(currentCommitId, tableName, record, true).write(record);
-        updateTxId(currentCommitId, tableName, record);
+        writerForTable(tableName, record, true).write(record);
       }
     } else {
       String routeField = config.tablesRouteField();
       if (routeField == null) {
-        config
-                .tables()
-                .forEach(
-                        tableName -> {
-                          writerForTable(currentCommitId, tableName, record, false).write(record);
-                          updateTxId(currentCommitId, tableName, record);
-                        });
+        config.tables().forEach(tableName -> {
+          writerForTable(tableName, record, false).write(record);
+        });
       } else {
         routeValue = extractRouteValue(record.value(), routeField);
         if (routeValue != null) {
-          config
-                  .tables()
-                  .forEach(
-                          tableName ->
-                                  config
-                                          .tableConfig(tableName)
-                                          .routeRegex()
-                                          .ifPresent(
-                                                  regex -> {
-                                                    if (regex.matcher(routeValue).matches()) {
-                                                      writerForTable(currentCommitId, tableName, record, false)
-                                                              .write(record);
+          config.tables().forEach(tableName ->
+                  config.tableConfig(tableName).routeRegex().ifPresent(regex -> {
+                    if (regex.matcher(routeValue).matches()) {
+                      writerForTable(tableName, record, false).write(record);
 
-                                                      updateTxId(currentCommitId, tableName, record);
-                                                    }
-                                                  }));
+                    }
+                  }));
         }
       }
-    }
-  }
-
-  private void updateTxId(UUID commitId, String tableName, SinkRecord record) {
-    Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
-    if (txId != null) {
-      Map<TableIdentifier, Map<TopicPartition, Long>> currentCommitTxIds =
-              txIdsByCommit.computeIfAbsent(commitId, k -> Maps.newConcurrentMap());
-
-      TableIdentifier tableIdentifier = TableIdentifier.parse(tableName);
-      Map<TopicPartition, Long> partitionTxIds =
-              currentCommitTxIds.computeIfAbsent(tableIdentifier, k -> Maps.newHashMap());
-      TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
-      partitionTxIds.merge(tp, txId, Long::max);
     }
   }
 
@@ -226,10 +181,8 @@ class Worker implements Writer, AutoCloseable {
   }
 
   private RecordWriter writerForTable(
-          UUID commitId, String tableName, SinkRecord sample, boolean ignoreMissingTable) {
-    Map<String, RecordWriter> currentWriters =
-            writersByCommit.computeIfAbsent(commitId, k -> Maps.newConcurrentMap());
-    return currentWriters.computeIfAbsent(
+          String tableName, SinkRecord sample, boolean ignoreMissingTable) {
+    return writers.computeIfAbsent(
             tableName, notUsed -> writerFactory.createWriter(tableName, sample, ignoreMissingTable));
   }
 }
