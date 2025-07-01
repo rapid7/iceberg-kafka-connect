@@ -90,19 +90,19 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final Map<UUID, Map<TableIdentifier, Map<TopicPartition, Long>>> commitTxIdsByTable;
 
   public Coordinator(
-          Catalog catalog,
-          IcebergSinkConfig config,
-          Collection<MemberDescription> members,
-          KafkaClientFactory clientFactory) {
+      Catalog catalog,
+      IcebergSinkConfig config,
+      Collection<MemberDescription> members,
+      KafkaClientFactory clientFactory) {
     // pass consumer group ID to which we commit low watermark offsets
     super("coordinator", config.controlGroupId() + "-coord", config, clientFactory);
 
     this.catalog = catalog;
     this.config = config;
     this.totalPartitionCount =
-            members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
+        members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
     this.snapshotOffsetsProp =
-            String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
+        String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
     this.exec = ThreadPools.newWorkerPool("iceberg-committer", config.commitThreads());
     this.commitState = new CommitState(config);
     this.commitTxIdsByTable = Maps.newConcurrentMap();
@@ -133,38 +133,13 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
   }
 
-  private boolean isCurrentCommit(org.apache.iceberg.connect.events.Payload payload) {
-    if (commitState.currentCommitId() == null) {
-      // No commit in progress, so ignore the event.
-      return false;
-    }
-
-    java.util.UUID eventCommitId = null;
-    if (payload instanceof DataWritten) {
-      eventCommitId = ((DataWritten) payload).commitId();
-    } else if (payload instanceof TransactionDataComplete) {
-      eventCommitId = ((TransactionDataComplete) payload).commitId();
-    }
-
-    if (eventCommitId != null && !commitState.currentCommitId().equals(eventCommitId)) {
-      LOG.warn("Received event for wrong commit ID, ignoring. Current commit ID: {}, Event commit ID: {}",
-              commitState.currentCommitId(), eventCommitId);
-      return false;
-    }
-    return true;
-  }
-
   private boolean receive(Envelope envelope) {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
-        if (isCurrentCommit(envelope.event().payload())) {
           commitState.addResponse(envelope);
-        }
         return true;
       case DATA_COMPLETE:
-        if (isCurrentCommit(envelope.event().payload())) {
           commitState.addReady(envelope);
-
           if (envelope.event().payload() instanceof TransactionDataComplete) {
             TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
             List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
@@ -188,7 +163,6 @@ public class Coordinator extends Channel implements AutoCloseable {
           if (commitState.isCommitReady(totalPartitionCount)) {
             commit(false);
           }
-        }
         return true;
     }
     return false;

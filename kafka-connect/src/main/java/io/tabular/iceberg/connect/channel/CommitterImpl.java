@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -59,58 +59,65 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   private final IcebergSinkConfig config;
   private final Optional<CoordinatorThread> maybeCoordinatorThread;
 
+  public CommitterImpl(SinkTaskContext context, IcebergSinkConfig config, Catalog catalog) {
+    this(context, config, catalog, new KafkaClientFactory(config.kafkaProps()));
+  }
+
   private CommitterImpl(
-          SinkTaskContext context,
-          IcebergSinkConfig config,
-          Catalog catalog,
-          KafkaClientFactory kafkaClientFactory) {
+      SinkTaskContext context,
+      IcebergSinkConfig config,
+      Catalog catalog,
+      KafkaClientFactory kafkaClientFactory) {
     this(
-            context,
-            config,
-            kafkaClientFactory,
-            new CoordinatorThreadFactoryImpl(catalog, kafkaClientFactory));
+        context,
+        config,
+        kafkaClientFactory,
+        new CoordinatorThreadFactoryImpl(catalog, kafkaClientFactory));
   }
 
   @VisibleForTesting
   CommitterImpl(
-          SinkTaskContext context,
-          IcebergSinkConfig config,
-          KafkaClientFactory clientFactory,
-          CoordinatorThreadFactory coordinatorThreadFactory) {
+      SinkTaskContext context,
+      IcebergSinkConfig config,
+      KafkaClientFactory clientFactory,
+      CoordinatorThreadFactory coordinatorThreadFactory) {
+    // pass transient consumer group ID to which we never commit offsets
     super(
-            "committer",
-            IcebergSinkConfig.DEFAULT_CONTROL_GROUP_PREFIX + UUID.randomUUID(),
-            config,
-            clientFactory);
-
-    LOG.info("CommitterImpl constructor called with config: {}", config);
+        "committer",
+        IcebergSinkConfig.DEFAULT_CONTROL_GROUP_PREFIX + UUID.randomUUID(),
+        config,
+        clientFactory);
 
     this.context = context;
     this.config = config;
 
-    LOG.info("About to create coordinator thread via factory");
     this.maybeCoordinatorThread = coordinatorThreadFactory.create(context, config);
-    LOG.info("Coordinator thread creation attempt completed, result: {}",
-            maybeCoordinatorThread.isPresent() ? "present" : "not present");
 
+    // The source-of-truth for source-topic offsets is the control-group-id
     Map<TopicPartition, Long> stableConsumerOffsets =
-            fetchStableConsumerOffsets(config.controlGroupId());
+        fetchStableConsumerOffsets(config.controlGroupId());
+    // Rewind kafka connect consumer to avoid duplicates
     context.offset(stableConsumerOffsets);
 
-    // This initial poll is for initialization, which is fine.
-    consumeAvailable(Duration.ofMillis(1000), envelope -> receive(envelope, commitId -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
+    consumeAvailable(
+            // initial poll with longer duration so the consumer will initialize...
+            Duration.ofMillis(1000),
+            envelope ->
+                    receive(
+                            envelope,
+                            // CommittableSupplier that always returns empty committables
+                            commitId -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
   }
-
 
   private Map<TopicPartition, Long> fetchStableConsumerOffsets(String groupId) {
     try {
       ListConsumerGroupOffsetsResult response =
-              admin()
-                      .listConsumerGroupOffsets(
-                              groupId, new ListConsumerGroupOffsetsOptions().requireStable(true));
+          admin()
+              .listConsumerGroupOffsets(
+                  groupId, new ListConsumerGroupOffsetsOptions().requireStable(true));
       return response.partitionsToOffsetAndMetadata().get().entrySet().stream()
-              .filter(entry -> context.assignment().contains(entry.getKey()))
-              .collect(toMap(Map.Entry::getKey, entry -> entry.getValue().offset()));
+          .filter(entry -> context.assignment().contains(entry.getKey()))
+          .collect(toMap(Map.Entry::getKey, entry -> entry.getValue().offset()));
     } catch (InterruptedException | ExecutionException e) {
       throw new ConnectException(e);
     }
@@ -124,7 +131,6 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
 
   private boolean receive(Envelope envelope, CommittableSupplier committableSupplier) {
     if (envelope.event().type() == PayloadType.START_COMMIT) {
-      LOG.info("Received START_COMMIT event");
       UUID commitId = ((StartCommit) envelope.event().payload()).commitId();
       sendCommitResponse(commitId, committableSupplier);
       return true;
@@ -134,44 +140,50 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
 
   private void sendCommitResponse(UUID commitId, CommittableSupplier committableSupplier) {
     Committable committable = committableSupplier.committable(commitId);
-    LOG.info("Sending commit {} to committable {}", commitId, committable);
-    if (committable == null) {
-      LOG.warn("Committable was null for commit ID {}, skipping response", commitId);
-      return;
-    }
 
     List<Event> events = Lists.newArrayList();
 
-    // Handle writer results
-    committable.writerResults().forEach(writerResult -> {
-      Event commitResponse = new Event(
-              config.controlGroupId(),
-              new DataWritten(
-                      writerResult.partitionStruct(),
-                      commitId,
-                      TableReference.of(config.catalogName(), writerResult.tableIdentifier()),
-                      writerResult.dataFiles(),
-                      writerResult.deleteFiles()));
+    committable
+        .writerResults()
+        .forEach(
+            writerResult -> {
+              Event commitResponse =
+                  new Event(
+                      config.controlGroupId(),
+                      new DataWritten(
+                          writerResult.partitionStruct(),
+                          commitId,
+                          TableReference.of(config.catalogName(), writerResult.tableIdentifier()),
+                          writerResult.dataFiles(),
+                          writerResult.deleteFiles()));
 
-      events.add(commitResponse);
-    });
+              events.add(commitResponse);
+            });
 
-    List<TopicPartitionOffset> assignments = context.assignment().stream()
-            .map(topicPartition -> {
-              Offset offset = committable.offsetsByTopicPartition().getOrDefault(topicPartition, null);
-              return new TopicPartitionOffset(
+    // include all assigned topic partitions even if no messages were read
+    // from a partition, as the coordinator will use that to determine
+    // when all data for a commit has been received
+    List<TopicPartitionOffset> assignments =
+        context.assignment().stream()
+            .map(
+                topicPartition -> {
+                  Offset offset =
+                      committable.offsetsByTopicPartition().getOrDefault(topicPartition, null);
+                  return new TopicPartitionOffset(
                       topicPartition.topic(),
                       topicPartition.partition(),
                       offset == null ? null : offset.offset(),
                       offset == null ? null : offset.timestamp());
-            })
+                })
             .collect(toList());
 
+    //  TableTopicPartitionTransactions now
     List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
 
-    Event commitReady = new Event(
-            config.controlGroupId(),
-            new TransactionDataComplete(commitId, assignments, tableTxIds));
+    Event commitReady =
+            new Event(
+                    config.controlGroupId(),
+                    new TransactionDataComplete(commitId, assignments, tableTxIds));
     events.add(commitReady);
 
     Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();
@@ -182,7 +194,6 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   @Override
   public void commit(CommittableSupplier committableSupplier) {
     throwExceptionIfCoordinatorIsTerminated();
-    LOG.info("Committing committable {}", committableSupplier);
     consumeAvailable(Duration.ZERO, envelope -> receive(envelope, committableSupplier));
   }
 
@@ -191,5 +202,4 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
     stop();
     maybeCoordinatorThread.ifPresent(CoordinatorThread::terminate);
   }
-
 }

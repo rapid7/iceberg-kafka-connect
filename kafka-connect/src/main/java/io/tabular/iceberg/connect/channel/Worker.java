@@ -148,28 +148,28 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
     if (routeField == null) {
       // route to all tables
       config
-              .tables()
-              .forEach(
-                      tableName -> {
-                        writerForTable(tableName, record, false).write(record);
-                      });
+          .tables()
+          .forEach(
+              tableName -> {
+                writerForTable(tableName, record, false).write(record);
+              });
 
     } else {
       String routeValue = extractRouteValue(record.value(), routeField);
       if (routeValue != null) {
         config
-                .tables()
-                .forEach(
-                        tableName ->
-                                config
-                                        .tableConfig(tableName)
-                                        .routeRegex()
-                                        .ifPresent(
-                                                regex -> {
-                                                  if (regex.matcher(routeValue).matches()) {
-                                                    writerForTable(tableName, record, false).write(record);
-                                                  }
-                                                }));
+            .tables()
+            .forEach(
+                tableName ->
+                    config
+                        .tableConfig(tableName)
+                        .routeRegex()
+                        .ifPresent(
+                            regex -> {
+                              if (regex.matcher(routeValue).matches()) {
+                                writerForTable(tableName, record, false).write(record);
+                              }
+                            }));
       }
     }
   }
@@ -194,8 +194,8 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
   }
 
   private RecordWriter writerForTable(
-          String tableName, SinkRecord sample, boolean ignoreMissingTable) {
+      String tableName, SinkRecord sample, boolean ignoreMissingTable) {
     return writers.computeIfAbsent(
-            tableName, notUsed -> writerFactory.createWriter(tableName, sample, ignoreMissingTable));
+        tableName, notUsed -> writerFactory.createWriter(tableName, sample, ignoreMissingTable));
   }
 }

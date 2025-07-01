@@ -97,9 +97,6 @@ public class WorkerTest {
     Worker worker = new Worker(config, writerFactory);
     UUID commitId = UUID.randomUUID();
 
-    // Change this line from startCommit to setCurrentCommitId
-    worker.setCurrentCommitId(commitId);
-
     // save a record
     SinkRecord rec = new SinkRecord(SRC_TOPIC_NAME, 0, null, "key", null, value, 0L);
     worker.write(ImmutableList.of(rec));
