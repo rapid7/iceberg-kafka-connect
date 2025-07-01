@@ -29,20 +29,24 @@ public class TaskImpl implements Task, AutoCloseable {
 
   private final Catalog catalog;
   private final Writer writer;
+  private final Committer committer;
 
   public TaskImpl(SinkTaskContext context, IcebergSinkConfig config) {
     this.catalog = Utilities.loadCatalog(config);
     this.writer = new Worker(config, catalog);
+    this.committer = new CommitterImpl(context, config, catalog);
   }
 
   @Override
   public void put(Collection<SinkRecord> sinkRecords) {
     writer.write(sinkRecords);
+    committer.commit(writer);
   }
 
   @Override
   public void close() throws Exception {
     Utilities.close(writer);
     Utilities.close(catalog);
+    Utilities.close(committer);
   }
 }
