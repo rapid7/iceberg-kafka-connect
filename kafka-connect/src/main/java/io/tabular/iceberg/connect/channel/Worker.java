@@ -65,15 +65,6 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
     this.sourceOffsets = Maps.newConcurrentMap();
   }
 
-  public void setCurrentCommitId(UUID commitId) {
-    LOG.info("Setting current commit ID: {}", commitId);
-    this.currentCommitId = commitId;
-  }
-
-  public UUID getCurrentCommitId() {
-    return this.currentCommitId;
-  }
-
   @Override
   public synchronized Committable committable(UUID commitId) {
     if (currentCommitId == null) {
@@ -131,44 +122,66 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
   }
 
   @Override
-  public void write(Collection<SinkRecord> sinkRecords) {
+  public synchronized void write(Collection<SinkRecord> sinkRecords) {
     if (sinkRecords != null && !sinkRecords.isEmpty()) {
       sinkRecords.forEach(this::save);
     }
   }
 
   private synchronized void save(SinkRecord record) {
+    // the consumer stores the offsets that corresponds to the next record to consume,
+    // so increment the record offset by one
     sourceOffsets.put(
             new TopicPartition(record.topic(), record.kafkaPartition()),
             new Offset(record.kafkaOffset() + 1, record.timestamp()));
 
-    String routeValue;
     if (config.dynamicTablesEnabled()) {
-      String routeField = config.tablesRouteField();
-      Preconditions.checkNotNull(routeField, "Route field cannot be null with dynamic routing");
-      routeValue = extractRouteValue(record.value(), routeField);
-      if (routeValue != null) {
-        String tableName = routeValue.toLowerCase();
-        writerForTable(tableName, record, true).write(record);
-      }
+      routeRecordDynamically(record);
     } else {
-      String routeField = config.tablesRouteField();
-      if (routeField == null) {
-        config.tables().forEach(tableName -> {
-          writerForTable(tableName, record, false).write(record);
-        });
-      } else {
-        routeValue = extractRouteValue(record.value(), routeField);
-        if (routeValue != null) {
-          config.tables().forEach(tableName ->
-                  config.tableConfig(tableName).routeRegex().ifPresent(regex -> {
-                    if (regex.matcher(routeValue).matches()) {
-                      writerForTable(tableName, record, false).write(record);
+      routeRecordStatically(record);
+    }
+  }
 
-                    }
-                  }));
-        }
+  private void routeRecordStatically(SinkRecord record) {
+    String routeField = config.tablesRouteField();
+
+    if (routeField == null) {
+      // route to all tables
+      config
+              .tables()
+              .forEach(
+                      tableName -> {
+                        writerForTable(tableName, record, false).write(record);
+                      });
+
+    } else {
+      String routeValue = extractRouteValue(record.value(), routeField);
+      if (routeValue != null) {
+        config
+                .tables()
+                .forEach(
+                        tableName ->
+                                config
+                                        .tableConfig(tableName)
+                                        .routeRegex()
+                                        .ifPresent(
+                                                regex -> {
+                                                  if (regex.matcher(routeValue).matches()) {
+                                                    writerForTable(tableName, record, false).write(record);
+                                                  }
+                                                }));
       }
+    }
+  }
+
+  private void routeRecordDynamically(SinkRecord record) {
+    String routeField = config.tablesRouteField();
+    Preconditions.checkNotNull(routeField, String.format("Route field cannot be null with dynamic routing at topic: %s, partition: %d, offset: %d", record.topic(), record.kafkaPartition(), record.kafkaOffset()));
+
+    String routeValue = extractRouteValue(record.value(), routeField);
+    if (routeValue != null) {
+      String tableName = routeValue.toLowerCase();
+      writerForTable(tableName, record, true).write(record);
     }
   }
 

@@ -19,6 +19,5 @@
 package io.tabular.iceberg.connect.channel;
 
 interface Committer {
-  boolean commit(CommittableSupplier committableSupplier);
-  void process();
+  void commit(CommittableSupplier committableSupplier);
 }

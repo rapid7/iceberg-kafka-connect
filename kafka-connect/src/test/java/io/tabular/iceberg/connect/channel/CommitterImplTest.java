@@ -377,10 +377,9 @@ class CommitterImplTest {
                       0,
                       UUID.randomUUID().toString(),
                       AvroUtil.encode(new Event(CONFIG.controlGroupId(), new StartCommit(commitId)))));
-      committerImpl.process();
-      committerImpl.process();
 
-      boolean result = committerImpl.commit(committableSupplier);
+
+
       assertThat(result).isTrue();
 
       consumer.addRecord(
