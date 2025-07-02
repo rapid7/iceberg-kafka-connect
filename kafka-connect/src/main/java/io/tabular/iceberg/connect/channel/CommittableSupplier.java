@@ -21,5 +21,5 @@ package io.tabular.iceberg.connect.channel;
 import java.util.UUID;
 
 interface CommittableSupplier {
-  Committable committable(UUID commitId);
+  Committable committable();
 }

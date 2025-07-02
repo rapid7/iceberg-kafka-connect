@@ -101,7 +101,7 @@ public class WorkerTest {
     SinkRecord rec = new SinkRecord(SRC_TOPIC_NAME, 0, null, "key", null, value, 0L);
     worker.write(ImmutableList.of(rec));
 
-    Committable committable = worker.committable(commitId);
+    Committable committable = worker.committable();
 
     assertThat(committable.offsetsByTopicPartition()).hasSize(1);
     // offset should be one more than the record offset

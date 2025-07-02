@@ -319,7 +319,7 @@ class CommitterImplTest {
                     config.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
     TerminatedCoordinatorThreadFactory coordinatorThreadFactory =
             new TerminatedCoordinatorThreadFactory();
-    CommittableSupplier committableSupplier = (id) -> { throw new NotImplementedException("Should not be called"); };
+    CommittableSupplier committableSupplier = () -> { throw new NotImplementedException("Should not be called"); };
 
     try (CommitterImpl committerImpl =
                  new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
@@ -354,7 +354,7 @@ class CommitterImplTest {
     );
 
     CommittableSupplier committableSupplier =
-            (id) ->
+            () ->
                     new Committable(
                             sourceOffsets,
                             sourceTxIds,
@@ -428,7 +428,7 @@ class CommitterImplTest {
                     CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
     CommittableSupplier committableSupplier =
-            (id) -> new Committable(
+            () -> new Committable(
                     ImmutableMap.of(),
                     ImmutableList.of(),
                     ImmutableList.of());
@@ -485,7 +485,7 @@ class CommitterImplTest {
     );
 
     CommittableSupplier committableSupplier =
-            (id) ->
+            () ->
                     new Committable(
                             ImmutableMap.of(
                                     sourceTp1, new Offset(100L, 200L)),

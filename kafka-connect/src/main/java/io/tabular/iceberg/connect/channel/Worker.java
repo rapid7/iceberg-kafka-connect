@@ -66,18 +66,8 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
   }
 
   @Override
-  public synchronized Committable committable(UUID commitId) {
-    if (currentCommitId == null) {
-      LOG.warn("Cannot create committable: currentCommitId is null");
-      return null;
-    }
-    if (!currentCommitId.equals(commitId)) {
-      LOG.warn("Cannot create committable: IDs don't match. Current: {}, Requested: {}",
-              currentCommitId, commitId);
-      return null;
-    }
+  public synchronized Committable committable() {
     LOG.info("Creating committable with {} writers", writers.size());
-    // Reuse existing logic from the committable() method
     List<WriterResult> writerResults =
             writers.values().stream()
                     .flatMap(writer -> writer.complete().stream())

@@ -112,7 +112,6 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   public void process() {
-    LOG.info("Starting coordinator");
     if (commitState.isCommitIntervalReached()) {
       // send out begin commit
       commitState.startNewCommit();

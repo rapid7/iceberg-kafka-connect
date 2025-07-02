@@ -106,7 +106,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                     receive(
                             envelope,
                             // CommittableSupplier that always returns empty committables
-                            commitId -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
+                            () -> new Committable(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of())));
   }
 
   private Map<TopicPartition, Long> fetchStableConsumerOffsets(String groupId) {
@@ -139,7 +139,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   }
 
   private void sendCommitResponse(UUID commitId, CommittableSupplier committableSupplier) {
-    Committable committable = committableSupplier.committable(commitId);
+    Committable committable = committableSupplier.committable();
 
     List<Event> events = Lists.newArrayList();
 
