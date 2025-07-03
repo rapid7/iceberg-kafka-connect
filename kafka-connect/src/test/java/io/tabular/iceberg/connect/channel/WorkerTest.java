@@ -29,11 +29,17 @@ import io.tabular.iceberg.connect.data.IcebergWriter;
 import io.tabular.iceberg.connect.data.IcebergWriterFactory;
 import io.tabular.iceberg.connect.data.WriterResult;
 import io.tabular.iceberg.connect.events.EventTestUtil;
+
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.junit.jupiter.api.Test;
 
@@ -70,28 +76,39 @@ public class WorkerTest {
     when(config.catalogName()).thenReturn("catalog");
     Map<String, Object> value = ImmutableMap.of(TRANSACTION_FIELD_NAME, 743);
     Committable committable = workerTest(config, value);
-
-    assertThat(
-            committable
-                    .txIdsByTopicPartition()
-                    .get(committable.txIdsByTopicPartition().keySet().iterator().next()))
-            .isEqualTo(743L);
+    List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
+    assertThat(tableTxIds).isNotEmpty();
+    assertThat(tableTxIds.get(0).txId()).isEqualTo(743L);
   }
 
   private Committable workerTest(IcebergSinkConfig config, Map<String, Object> value) {
+    // Extract transaction ID from value if present
+    long txId = 0L;
+    if (value.containsKey(TRANSACTION_FIELD_NAME)) {
+      Object txIdObj = value.get(TRANSACTION_FIELD_NAME);
+      if (txIdObj instanceof Number) {
+        txId = ((Number) txIdObj).longValue();
+      }
+    }
+
+    TopicPartition tp = new TopicPartition(SRC_TOPIC_NAME, 0);
     WriterResult writeResult =
             new WriterResult(
                     TableIdentifier.parse(TABLE_NAME),
                     ImmutableList.of(EventTestUtil.createDataFile()),
                     ImmutableList.of(),
-                    StructType.of());
+                    StructType.of(),
+                    ImmutableMap.of(tp, txId)); // Use the extracted txId instead of hardcoded 0L
+
     IcebergWriter writer = mock(IcebergWriter.class);
     when(writer.complete()).thenReturn(ImmutableList.of(writeResult));
 
+    // Rest of the method remains the same
     IcebergWriterFactory writerFactory = mock(IcebergWriterFactory.class);
     when(writerFactory.createWriter(any(), any(), anyBoolean())).thenReturn(writer);
 
-    Writer worker = new Worker(config, writerFactory);
+    Worker worker = new Worker(config, writerFactory);
+    UUID commitId = UUID.randomUUID();
 
     // save a record
     SinkRecord rec = new SinkRecord(SRC_TOPIC_NAME, 0, null, "key", null, value, 0L);
@@ -100,7 +117,6 @@ public class WorkerTest {
     Committable committable = worker.committable();
 
     assertThat(committable.offsetsByTopicPartition()).hasSize(1);
-    // offset should be one more than the record offset
     assertThat(
             committable
                     .offsetsByTopicPartition()

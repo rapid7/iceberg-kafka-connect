@@ -56,7 +56,6 @@ public abstract class Channel {
   private final Admin admin;
   private final Map<Integer, Long> controlTopicOffsets = Maps.newHashMap();
   private final String producerId;
-  private final Map<Integer, Long> highestTxIdPerPartition = Maps.newHashMap();
 
   private final EventDecoder eventDecoder;
 
@@ -146,10 +145,6 @@ public abstract class Channel {
   protected Map<Integer, Long> controlTopicOffsets() {
     return controlTopicOffsets;
   }
-
-  protected Map<Integer, Long> highestTxIdPerPartition() {
-        return highestTxIdPerPartition;
-    }
 
   protected void commitConsumerOffsets() {
     Map<TopicPartition, OffsetAndMetadata> offsetsToCommit = Maps.newHashMap();

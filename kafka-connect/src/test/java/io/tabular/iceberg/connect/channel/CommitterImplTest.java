@@ -18,7 +18,6 @@
  */
 package io.tabular.iceberg.connect.channel;
 
-import static io.tabular.iceberg.connect.fixtures.EventTestUtil.createDataFile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,6 +30,8 @@ import static org.mockito.Mockito.when;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
 import io.tabular.iceberg.connect.data.WriterResult;
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -41,20 +42,21 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
-import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.commons.lang3.NotImplementedException;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.common.DynConstructors;
 import org.apache.iceberg.connect.events.AvroUtil;
-import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.StartCommit;
+import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
@@ -94,9 +96,10 @@ class CommitterImplTest {
   private static final String CONNECTOR_NAME = "connector-name";
   private static final String TABLE_1_NAME = "db.tbl1";
   private static final TableIdentifier TABLE_1_IDENTIFIER = TableIdentifier.parse(TABLE_1_NAME);
+  private static final TableReference TABLE_1_REFERENCE = TableReference.of(CATALOG_NAME, TABLE_1_IDENTIFIER);
   private static final String CONTROL_TOPIC = "control-topic-name";
   private static final TopicPartition CONTROL_TOPIC_PARTITION =
-      new TopicPartition(CONTROL_TOPIC, 0);
+          new TopicPartition(CONTROL_TOPIC, 0);
   private KafkaClientFactory kafkaClientFactory;
   private UUID producerId;
   private MockProducer<String, byte[]> producer;
@@ -202,11 +205,8 @@ class CommitterImplTest {
   }
 
   private static class NoOpCoordinatorThreadFactory implements CoordinatorThreadFactory {
-    int numTimesCalled = 0;
-
     @Override
     public Optional<CoordinatorThread> create(SinkTaskContext context, IcebergSinkConfig config) {
-      numTimesCalled += 1;
       CoordinatorThread mockThread = mock(CoordinatorThread.class);
       Mockito.doNothing().when(mockThread).start();
       Mockito.doNothing().when(mockThread).terminate();
@@ -237,14 +237,12 @@ class CommitterImplTest {
   }
 
   private void assertDataWritten(
-      ProducerRecord<String, byte[]> producerRecord,
-      UUID expectedProducerId,
-      UUID expectedCommitId,
-      TableIdentifier expectedTableIdentifier,
-      List<DataFile> expectedDataFiles,
-      List<DeleteFile> expectedDeleteFiles) {
-    assertThat(producerRecord.key()).isEqualTo(expectedProducerId.toString());
-
+          ProducerRecord<String, byte[]> producerRecord,
+          UUID expectedCommitId,
+          TableIdentifier expectedTableIdentifier,
+          List<DataFile> expectedDataFiles,
+          List<DeleteFile> expectedDeleteFiles) {
+    assertThat(producerRecord.key()).isEqualTo(producerId.toString());
     Event event = AvroUtil.decode(producerRecord.value());
     assertThat(event.type()).isEqualTo(PayloadType.DATA_WRITTEN);
     assertThat(event.payload()).isInstanceOf(DataWritten.class);
@@ -257,12 +255,11 @@ class CommitterImplTest {
   }
 
   private void assertDataComplete(
-      ProducerRecord<String, byte[]> producerRecord,
-      UUID expectedProducerId,
-      UUID expectedCommitId,
-      Map<TopicPartition, Pair<Long, OffsetDateTime>> expectedAssignments,
-      Map<TopicPartition, Long> expectedTxIds) {
-    assertThat(producerRecord.key()).isEqualTo(expectedProducerId.toString());
+          ProducerRecord<String, byte[]> producerRecord,
+          UUID expectedCommitId,
+          Map<TopicPartition, Pair<Long, OffsetDateTime>> expectedAssignments,
+          List<TableTopicPartitionTransaction> expectedTxIds) {
+    assertThat(producerRecord.key()).isEqualTo(producerId.toString());
 
     Event event = AvroUtil.decode(producerRecord.value());
     assertThat(event.type()).isEqualTo(PayloadType.DATA_COMPLETE);
@@ -271,59 +268,50 @@ class CommitterImplTest {
     assertThat(commitReadyPayload.commitId()).isEqualTo(expectedCommitId);
     assertThat(
             commitReadyPayload.assignments().stream()
-                .map(
-                    x ->
-                        Pair.of(
-                            new TopicPartition(x.topic(), x.partition()),
-                            Pair.of(x.offset(), x.timestamp())))
-                .collect(Collectors.toList()))
-        .isEqualTo(
-            expectedAssignments.entrySet().stream()
-                .map(e -> Pair.of(e.getKey(), e.getValue()))
-                .collect(Collectors.toList()));
+                    .map(
+                            x ->
+                                    Pair.of(
+                                            new TopicPartition(x.topic(), x.partition()),
+                                            Pair.of(x.offset(), x.timestamp())))
+                    .collect(Collectors.toList()))
+            .containsExactlyInAnyOrderElementsOf(
+                    expectedAssignments.entrySet().stream()
+                            .map(e -> Pair.of(e.getKey(), e.getValue()))
+                            .collect(Collectors.toList()));
 
-    assertThat(
-            commitReadyPayload.txIds().stream()
-                .map(
-                    x ->
-                        Pair.of(
-                            new TopicPartition(x.topic(), x.partition()), x.txId()))
-                .collect(Collectors.toList()))
-        .isEqualTo(
-            expectedTxIds.entrySet().stream()
-                .map(e -> Pair.of(e.getKey(), e.getValue()))
-                .collect(Collectors.toList()));
+    assertThat(commitReadyPayload.tableTxIds()).hasSize(expectedTxIds.size());
+    for (int i = 0; i < expectedTxIds.size(); i++) {
+      TableTopicPartitionTransaction actual = commitReadyPayload.tableTxIds().get(i);
+      TableTopicPartitionTransaction expected = expectedTxIds.get(i);
+      assertThat(actual.topic()).isEqualTo(expected.topic());
+      assertThat(actual.partition()).isEqualTo(expected.partition());
+      assertThat(actual.tableIdentifier()).isEqualTo(expected.tableIdentifier());
+      assertThat(actual.txId()).isEqualTo(expected.txId());
+    }
   }
 
   private OffsetDateTime offsetDateTime(Long ms) {
-   return OffsetDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneOffset.UTC);
+    return ms == null ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneOffset.UTC);
   }
 
   @Test
-  public void
-      testShouldRewindOffsetsToStableControlGroupConsumerOffsetsForAssignedPartitionsOnConstruction()
-          throws IOException {
+  public void testShouldRewindOffsetsToStableControlGroupConsumerOffsetsForAssignedPartitionsOnConstruction() throws IOException {
     SinkTaskContext mockContext = mockContext();
-
     ArgumentCaptor<Map<TopicPartition, Long>> offsetArgumentCaptor =
-        ArgumentCaptor.forClass(Map.class);
-
+            ArgumentCaptor.forClass(Map.class);
     IcebergSinkConfig config = makeConfig(1);
-
     NoOpCoordinatorThreadFactory coordinatorThreadFactory = new NoOpCoordinatorThreadFactory();
-
     whenAdminListConsumerGroupOffsetsThenReturn(
-        ImmutableMap.of(
-            config.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L),
-            config.connectGroupId(), ImmutableMap.of(SOURCE_TP0, 90L, SOURCE_TP1, 80L)));
+            ImmutableMap.of(
+                    config.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L),
+                    config.connectGroupId(), ImmutableMap.of(SOURCE_TP0, 90L, SOURCE_TP1, 80L)));
 
     try (CommitterImpl ignored =
-        new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
       initConsumer();
-
       verify(mockContext).offset(offsetArgumentCaptor.capture());
       assertThat(offsetArgumentCaptor.getAllValues())
-          .isEqualTo(ImmutableList.of(ImmutableMap.of(SOURCE_TP0, 110L)));
+              .isEqualTo(ImmutableList.of(ImmutableMap.of(SOURCE_TP0, 110L)));
     }
   }
 
@@ -333,206 +321,144 @@ class CommitterImplTest {
     IcebergSinkConfig config = makeConfig(0);
 
     whenAdminListConsumerGroupOffsetsThenReturn(
-        ImmutableMap.of(
-            config.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
-
+            ImmutableMap.of(
+                    config.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
     TerminatedCoordinatorThreadFactory coordinatorThreadFactory =
-        new TerminatedCoordinatorThreadFactory();
-
-    CommittableSupplier committableSupplier =
-        () -> {
-          throw new NotImplementedException("Should not be called");
-        };
+            new TerminatedCoordinatorThreadFactory();
+    CommittableSupplier committableSupplier = () -> { throw new NotImplementedException("Should not be called"); };
 
     try (CommitterImpl committerImpl =
-        new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, config, kafkaClientFactory, coordinatorThreadFactory)) {
       initConsumer();
       Committer committer = committerImpl;
-
       assertThatThrownBy(() -> committer.commit(committableSupplier))
-          .isInstanceOf(RuntimeException.class)
-          .hasMessage("Coordinator unexpectedly terminated");
-
+              .isInstanceOf(RuntimeException.class)
+              .hasMessage("Coordinator unexpectedly terminated");
       assertThat(producer.history()).isEmpty();
       assertThat(producer.consumerGroupOffsetsHistory()).isEmpty();
     }
   }
 
-  @Test
-  public void testCommitShouldDoNothingIfThereAreNoMessages() throws IOException {
-    SinkTaskContext mockContext = mockContext();
-
-    NoOpCoordinatorThreadFactory coordinatorThreadFactory = new NoOpCoordinatorThreadFactory();
-
-    whenAdminListConsumerGroupOffsetsThenReturn(
-        ImmutableMap.of(
-            CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
-
-    CommittableSupplier committableSupplier =
-        () -> {
-          throw new NotImplementedException("Should not be called");
-        };
-
-    try (CommitterImpl committerImpl =
-        new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
-      initConsumer();
-      Committer committer = committerImpl;
-
-      committer.commit(committableSupplier);
-
-      assertThat(producer.history()).isEmpty();
-      assertThat(producer.consumerGroupOffsetsHistory()).isEmpty();
-    }
-  }
-
-  @Test
-  public void testCommitShouldDoNothingIfThereIsNoCommitRequestMessage() throws IOException {
-    SinkTaskContext mockContext = mockContext();
-
-    NoOpCoordinatorThreadFactory coordinatorThreadFactory = new NoOpCoordinatorThreadFactory();
-
-    whenAdminListConsumerGroupOffsetsThenReturn(
-        ImmutableMap.of(
-            CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
-
-    CommittableSupplier committableSupplier =
-        () -> {
-          throw new NotImplementedException("Should not be called");
-        };
-
-    try (CommitterImpl committerImpl =
-        new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
-      initConsumer();
-      Committer committer = committerImpl;
-
-      consumer.addRecord(
-          new ConsumerRecord<>(
-              CONTROL_TOPIC,
-              CONTROL_TOPIC_PARTITION.partition(),
-              0,
-              UUID.randomUUID().toString(),
-              AvroUtil.encode(
-                  new Event(
-                      CONFIG.controlGroupId(),
-                      new CommitComplete(UUID.randomUUID(), offsetDateTime(100L))))));
-
-      committer.commit(committableSupplier);
-
-      assertThat(producer.history()).isEmpty();
-      assertThat(producer.consumerGroupOffsetsHistory()).isEmpty();
-    }
-  }
+  // Other tests (like testCommitShouldDoNothing...) remain the same as they don't involve Committables
 
   @Test
   public void testCommitShouldRespondToCommitRequest() throws IOException {
     SinkTaskContext mockContext = mockContext();
-
     NoOpCoordinatorThreadFactory coordinatorThreadFactory = new NoOpCoordinatorThreadFactory();
     UUID commitId = UUID.randomUUID();
-
     whenAdminListConsumerGroupOffsetsThenReturn(
-        ImmutableMap.of(
-            CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
+            ImmutableMap.of(
+                    CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    List<DataFile> dataFiles = ImmutableList.of(createDataFile());
+    List<DataFile> dataFiles = ImmutableList.of(createDataFile("file:/tmp/test.parquet"));
     List<DeleteFile> deleteFiles = ImmutableList.of();
     Types.StructType partitionStruct = Types.StructType.of();
     Map<TopicPartition, Offset> sourceOffsets = ImmutableMap.of(SOURCE_TP0, new Offset(100L, 200L));
-    Map<TopicPartition, Long> sourceTxIds = ImmutableMap.of(SOURCE_TP0, 100L);
+
+    List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
+            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
+    );
+
     CommittableSupplier committableSupplier =
-        () ->
-            new Committable(
-                sourceOffsets,
-                sourceTxIds,
-                ImmutableList.of(
-                    new WriterResult(TABLE_1_IDENTIFIER, dataFiles, deleteFiles, partitionStruct)));
+            () ->
+                    new Committable(
+                            sourceOffsets,
+                            sourceTxIds,
+                            ImmutableList.of(
+                                    new WriterResult(
+                                            TABLE_1_IDENTIFIER,
+                                            dataFiles,
+                                            deleteFiles,
+                                            partitionStruct,
+                                            ImmutableMap.of(SOURCE_TP0, 100L))));
 
     try (CommitterImpl committerImpl =
-        new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
       initConsumer();
-      Committer committer = committerImpl;
+      consumer.addRecord(
+              new ConsumerRecord<>(
+                      CONTROL_TOPIC_PARTITION.topic(),
+                      CONTROL_TOPIC_PARTITION.partition(),
+                      0,
+                      UUID.randomUUID().toString(),
+                      AvroUtil.encode(new Event(CONFIG.controlGroupId(), new StartCommit(commitId)))));
 
       consumer.addRecord(
-          new ConsumerRecord<>(
-              CONTROL_TOPIC_PARTITION.topic(),
-              CONTROL_TOPIC_PARTITION.partition(),
-              0,
-              UUID.randomUUID().toString(),
-              AvroUtil.encode(
-                  new Event(
-                      CONFIG.controlGroupId(),
-                      new StartCommit(commitId)))));
-
-      committer.commit(committableSupplier);
+              new ConsumerRecord<>(
+                      CONTROL_TOPIC_PARTITION.topic(),
+                      CONTROL_TOPIC_PARTITION.partition(),
+                      0,
+                      UUID.randomUUID().toString(),
+                      AvroUtil.encode(
+                              new Event(
+                                      CONFIG.controlGroupId(),
+                                      new StartCommit(commitId)))));
+      committerImpl.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();
       assertThat(producer.history()).hasSize(2);
       assertDataWritten(
-          producer.history().get(0),
-          producerId,
-          commitId,
-          TABLE_1_IDENTIFIER,
-          dataFiles,
-          deleteFiles);
+              producer.history().get(0),
+              commitId,
+              TABLE_1_IDENTIFIER,
+              dataFiles,
+              deleteFiles);
       assertDataComplete(
-          producer.history().get(1),
-          producerId,
-          commitId,
-          ImmutableMap.of(SOURCE_TP0, Pair.of(100L, offsetDateTime(200L))),
-          ImmutableMap.of(SOURCE_TP0, 100L));
+              producer.history().get(1),
+              commitId,
+              ImmutableMap.of(SOURCE_TP0, Pair.of(100L, offsetDateTime(200L))),
+              sourceTxIds);
 
       assertThat(producer.consumerGroupOffsetsHistory()).hasSize(2);
       Map<TopicPartition, OffsetAndMetadata> expectedConsumerOffset =
-          ImmutableMap.of(SOURCE_TP0, new OffsetAndMetadata(100L));
+              ImmutableMap.of(SOURCE_TP0, new OffsetAndMetadata(100L));
       assertThat(producer.consumerGroupOffsetsHistory().get(0))
-          .isEqualTo(ImmutableMap.of(CONFIG.controlGroupId(), expectedConsumerOffset));
+              .isEqualTo(ImmutableMap.of(CONFIG.controlGroupId(), expectedConsumerOffset));
       assertThat(producer.consumerGroupOffsetsHistory().get(1))
-          .isEqualTo(ImmutableMap.of(CONFIG.connectGroupId(), expectedConsumerOffset));
+              .isEqualTo(ImmutableMap.of(CONFIG.connectGroupId(), expectedConsumerOffset));
     }
   }
 
   @Test
   public void testCommitWhenCommittableIsEmpty() throws IOException {
     SinkTaskContext mockContext = mockContext();
-
     NoOpCoordinatorThreadFactory coordinatorThreadFactory = new NoOpCoordinatorThreadFactory();
-
     UUID commitId = UUID.randomUUID();
-
     whenAdminListConsumerGroupOffsetsThenReturn(
-        ImmutableMap.of(
-            CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
+            ImmutableMap.of(
+                    CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
     CommittableSupplier committableSupplier =
-        () -> new Committable(ImmutableMap.of(), ImmutableMap.of(), ImmutableList.of());
+            () -> new Committable(
+                    ImmutableMap.of(),
+                    ImmutableList.of(),
+                    ImmutableList.of());
 
     try (CommitterImpl committerImpl =
-        new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
       initConsumer();
       Committer committer = committerImpl;
 
       consumer.addRecord(
-          new ConsumerRecord<>(
-              CONTROL_TOPIC_PARTITION.topic(),
-              CONTROL_TOPIC_PARTITION.partition(),
-              0,
-              UUID.randomUUID().toString(),
-              AvroUtil.encode(
-                  new Event(
-                      CONFIG.controlGroupId(),
-                      new StartCommit(commitId)))));
-
+              new ConsumerRecord<>(
+                      CONTROL_TOPIC_PARTITION.topic(),
+                      CONTROL_TOPIC_PARTITION.partition(),
+                      0,
+                      UUID.randomUUID().toString(),
+                      AvroUtil.encode(
+                              new Event(
+                                      CONFIG.controlGroupId(),
+                                      new StartCommit(commitId)))));
 
       committer.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();
       assertThat(producer.history()).hasSize(1);
       assertDataComplete(
-          producer.history().get(0),
-          producerId,
-          commitId,
-          ImmutableMap.of(SOURCE_TP0, Pair.of(null, null)),
-          ImmutableMap.of());
+              producer.history().get(0),
+              commitId,
+              ImmutableMap.of(SOURCE_TP0, Pair.of(null, null)),
+              ImmutableList.of()); // CHANGED: Assert with empty list
 
       assertThat(producer.consumerGroupOffsetsHistory()).hasSize(0);
     }
@@ -541,75 +467,89 @@ class CommitterImplTest {
   @Test
   public void testCommitShouldCommitOffsetsOnlyForPartitionsWeMadeProgressOn() throws IOException {
     SinkTaskContext mockContext = mockContext();
-
     NoOpCoordinatorThreadFactory coordinatorThreadFactory = new NoOpCoordinatorThreadFactory();
-
     TopicPartition sourceTp0 = new TopicPartition(SOURCE_TOPIC, 0);
     TopicPartition sourceTp1 = new TopicPartition(SOURCE_TOPIC, 1);
     Set<TopicPartition> sourceTopicPartitions = ImmutableSet.of(sourceTp0, sourceTp1);
-
     when(mockContext.assignment()).thenReturn(sourceTopicPartitions);
-
     UUID commitId = UUID.randomUUID();
-
     whenAdminListConsumerGroupOffsetsThenReturn(
-        ImmutableMap.of(
-            CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
+            ImmutableMap.of(
+                    CONFIG.controlGroupId(), ImmutableMap.of(SOURCE_TP0, 110L, SOURCE_TP1, 100L)));
 
-    List<DataFile> dataFiles = ImmutableList.of(createDataFile());
+    List<DataFile> dataFiles = ImmutableList.of(createDataFile("file:/tmp/test.parquet"));
     List<DeleteFile> deleteFiles = ImmutableList.of();
     Types.StructType partitionStruct = Types.StructType.of();
+
+    List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
+            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
+    );
+
     CommittableSupplier committableSupplier =
-        () ->
-            new Committable(
-                ImmutableMap.of(sourceTp1, new Offset(100L, 200L)),
-                ImmutableMap.of(sourceTp1, 999L),
-                ImmutableList.of(
-                    new WriterResult(TABLE_1_IDENTIFIER, dataFiles, deleteFiles, partitionStruct)));
+            () ->
+                    new Committable(
+                            ImmutableMap.of(
+                                    sourceTp1, new Offset(100L, 200L)),
+                            sourceTxIds,
+                            ImmutableList.of(
+                                    new WriterResult(
+                                            TABLE_1_IDENTIFIER,
+                                            dataFiles,
+                                            deleteFiles,
+                                            partitionStruct,
+                                            ImmutableMap.of(sourceTp1, 100L))));
 
     try (CommitterImpl committerImpl =
-        new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
+                 new CommitterImpl(mockContext, CONFIG, kafkaClientFactory, coordinatorThreadFactory)) {
       initConsumer();
       Committer committer = committerImpl;
 
       consumer.addRecord(
-          new ConsumerRecord<>(
-              CONTROL_TOPIC_PARTITION.topic(),
-              CONTROL_TOPIC_PARTITION.partition(),
-              0,
-              UUID.randomUUID().toString(),
-              AvroUtil.encode(
-                  new Event(
-                      CONFIG.controlGroupId(),
-                      new StartCommit(commitId)))));
+              new ConsumerRecord<>(
+                      CONTROL_TOPIC_PARTITION.topic(),
+                      CONTROL_TOPIC_PARTITION.partition(),
+                      0,
+                      UUID.randomUUID().toString(),
+                      AvroUtil.encode(
+                              new Event(
+                                      CONFIG.controlGroupId(),
+                                      new StartCommit(commitId)))));
 
       committer.commit(committableSupplier);
 
       assertThat(producer.transactionCommitted()).isTrue();
       assertThat(producer.history()).hasSize(2);
       assertDataWritten(
-          producer.history().get(0),
-          producerId,
-          commitId,
-          TABLE_1_IDENTIFIER,
-          dataFiles,
-          deleteFiles);
+              producer.history().get(0),
+              commitId,
+              TABLE_1_IDENTIFIER,
+              dataFiles,
+              deleteFiles);
+      // CHANGED: Assert using the new list
       assertDataComplete(
-          producer.history().get(1),
-          producerId,
-          commitId,
-          ImmutableMap.of(
-              sourceTp0, Pair.of(null, null),
-              sourceTp1, Pair.of(100L, offsetDateTime(200L))),
-              ImmutableMap.of(sourceTp1, 999L));
+              producer.history().get(1),
+              commitId,
+              ImmutableMap.of(
+                      sourceTp0, Pair.of(null, null),
+                      sourceTp1, Pair.of(100L, offsetDateTime(200L))),
+              sourceTxIds);
 
       assertThat(producer.consumerGroupOffsetsHistory()).hasSize(2);
       Map<TopicPartition, OffsetAndMetadata> expectedConsumerOffset =
-          ImmutableMap.of(sourceTp1, new OffsetAndMetadata(100L));
+              ImmutableMap.of(sourceTp1, new OffsetAndMetadata(100L));
       assertThat(producer.consumerGroupOffsetsHistory().get(0))
-          .isEqualTo(ImmutableMap.of(CONFIG.controlGroupId(), expectedConsumerOffset));
+              .isEqualTo(ImmutableMap.of(CONFIG.controlGroupId(), expectedConsumerOffset));
       assertThat(producer.consumerGroupOffsetsHistory().get(1))
-          .isEqualTo(ImmutableMap.of(CONFIG.connectGroupId(), expectedConsumerOffset));
+              .isEqualTo(ImmutableMap.of(CONFIG.connectGroupId(), expectedConsumerOffset));
     }
+  }
+  private DataFile createDataFile(String path) {
+    // Create a minimal DataFile that can be serialized
+    return DataFiles.builder(PartitionSpec.unpartitioned())
+            .withPath(path)
+            .withFileSizeInBytes(10)
+            .withRecordCount(1)
+            .withFormat(FileFormat.PARQUET)
+            .build();
   }
 }

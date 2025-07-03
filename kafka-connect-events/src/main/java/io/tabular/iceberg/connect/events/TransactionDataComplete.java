@@ -18,31 +18,31 @@
  */
 package io.tabular.iceberg.connect.events;
 
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericData;
-import org.apache.iceberg.avro.AvroSchemaUtil;
-import org.apache.iceberg.connect.events.PayloadType;
-import org.apache.iceberg.connect.events.TopicPartitionOffset;
-import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
-import org.apache.iceberg.types.Types;
-
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericData;
+import org.apache.iceberg.avro.AvroSchemaUtil;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.connect.events.PayloadType;
+import org.apache.iceberg.connect.events.TopicPartitionOffset;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.types.Types;
 
 public class TransactionDataComplete implements org.apache.iceberg.connect.events.Payload {
 
     private UUID commitId;
     private List<TopicPartitionOffset> assignments;
-    private List<TopicPartitionTransaction> txIds;
+    private List<TableTopicPartitionTransaction> tableTxIds;
     private final Schema avroSchema;
 
     static final int COMMIT_ID = 10_100;
     static final int ASSIGNMENTS = 10_101;
     static final int ASSIGNMENTS_ELEMENT = 10_102;
-    static final int TX_IDS = 10_201;
-    static final int TX_IDS_ELEMENT = 10_202;
+    static final int TABLE_TX_IDS = 10_201;
+    static final int TABLE_TX_IDS_ELEMENT = 10_202;
 
     private static final Types.StructType ICEBERG_SCHEMA =
             Types.StructType.of(
@@ -52,9 +52,9 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
                             "assignments",
                             Types.ListType.ofRequired(ASSIGNMENTS_ELEMENT, TopicPartitionOffset.ICEBERG_SCHEMA)),
                     Types.NestedField.optional(
-                            TX_IDS,
-                            "tx_ids",
-                            Types.ListType.ofRequired(TX_IDS_ELEMENT, TopicPartitionTransaction.ICEBERG_SCHEMA)));
+                            TABLE_TX_IDS,
+                            "table_tx_ids",
+                            Types.ListType.ofRequired(TABLE_TX_IDS_ELEMENT, TableTopicPartitionTransaction.ICEBERG_SCHEMA)));
 
     private static final Schema AVRO_SCHEMA = AvroSchemaUtil.convert(ICEBERG_SCHEMA,
             TransactionDataComplete.class.getName());
@@ -63,10 +63,10 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         this.avroSchema = avroSchema;
     }
 
-    public TransactionDataComplete(UUID commitId, List<TopicPartitionOffset> assignments, List<TopicPartitionTransaction> txIds) {
+    public TransactionDataComplete(UUID commitId, List<TopicPartitionOffset> assignments, List<TableTopicPartitionTransaction> tableTxIds) {
         this.commitId = commitId;
         this.assignments = assignments;
-        this.txIds = txIds;
+        this.tableTxIds = tableTxIds;
         this.avroSchema = AVRO_SCHEMA;
     }
 
@@ -78,8 +78,8 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         return assignments;
     }
 
-    public List<TopicPartitionTransaction> txIds() {
-        return txIds;
+    public List<TableTopicPartitionTransaction> tableTxIds() {
+        return tableTxIds;
     }
 
     @Override
@@ -108,16 +108,15 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
             case ASSIGNMENTS:
                 this.assignments = (List<TopicPartitionOffset>) v;
                 return;
-            case TX_IDS:
+            case TABLE_TX_IDS:
                 if (v instanceof List) {
                     List<GenericData.Record> records = (List<GenericData.Record>) v;
-                    this.txIds = records.stream()
-                            .map(TransactionDataComplete::toTopicPartitionTransaction)
+                    this.tableTxIds = records.stream()
+                            .map(TransactionDataComplete::toTableTopicPartitionTransaction)
                             .collect(Collectors.toList());
                 }
                 return;
             default:
-                // ignore the object, it must be from a newer version of the format
         }
     }
 
@@ -128,10 +127,10 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
                 return commitId;
             case ASSIGNMENTS:
                 return assignments;
-            case TX_IDS:
-                return txIds;
+            case TABLE_TX_IDS:
+                return tableTxIds;
             default:
-                throw new UnsupportedOperationException("Unknown field ordinal: " + i);
+                throw new UnsupportedOperationException("Unknown field index: " + i);
         }
     }
 
@@ -143,10 +142,20 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         return val == null ? -1 : (int) val;
     }
 
-    public static TopicPartitionTransaction toTopicPartitionTransaction(GenericData.Record record) {
-        Long txId = (long) record.get("txId");
+    private static TableTopicPartitionTransaction toTableTopicPartitionTransaction(GenericData.Record record) {
         String topic = record.get("topic").toString();
         int partition = (int) record.get("partition");
-        return new TopicPartitionTransaction(topic, partition, txId);
+        Long txId = (Long) record.get("txId");
+        String catalogName = record.get("catalog_name").toString();
+        String tableName = record.get("table_name").toString();
+
+        List<String> namespace = ((List<?>) record.get("namespace")).stream()
+                .map(Object::toString)
+                .collect(Collectors.toList());
+        List<String> identifierParts = Lists.newArrayList(namespace);
+        identifierParts.add(tableName);
+        TableIdentifier tableIdentifier = TableIdentifier.of(identifierParts.toArray(new String[0]));
+
+        return new TableTopicPartitionTransaction(topic, partition, catalogName, tableIdentifier, txId);
     }
 }
