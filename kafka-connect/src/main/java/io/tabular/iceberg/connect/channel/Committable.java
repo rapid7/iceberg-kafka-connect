@@ -20,27 +20,27 @@ package io.tabular.iceberg.connect.channel;
 
 import io.tabular.iceberg.connect.data.Offset;
 import io.tabular.iceberg.connect.data.WriterResult;
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import java.util.List;
 import java.util.Map;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.kafka.common.TopicPartition;
-import java.util.stream.Collectors;
 
 class Committable {
 
   private final ImmutableMap<TopicPartition, Offset> offsetsByTopicPartition;
-  private final ImmutableMap<TopicPartition, Long> txIdsByTopicPartition;
+
+  private final ImmutableList<TableTopicPartitionTransaction> tableTxIds;
+
   private final ImmutableList<WriterResult> writerResults;
 
   Committable(
-          Map<TopicPartition, Offset> offsetsByTopicPartition, Map<TopicPartition, Long> txIdsByTopicPartition, List<WriterResult> writerResults) {
+          Map<TopicPartition, Offset> offsetsByTopicPartition,
+          List<TableTopicPartitionTransaction> tableTxIds,
+          List<WriterResult> writerResults) {
     this.offsetsByTopicPartition = ImmutableMap.copyOf(offsetsByTopicPartition);
-    this.txIdsByTopicPartition = ImmutableMap.copyOf(
-            txIdsByTopicPartition.entrySet().stream()
-                    .filter(entry -> entry.getValue() != null)
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
-    );
+    this.tableTxIds = ImmutableList.copyOf(tableTxIds);
     this.writerResults = ImmutableList.copyOf(writerResults);
   }
 
@@ -48,9 +48,9 @@ class Committable {
     return offsetsByTopicPartition;
   }
 
-    public Map<TopicPartition, Long> txIdsByTopicPartition() {
-        return txIdsByTopicPartition;
-    }
+  public List<TableTopicPartitionTransaction> getTableTxIds() {
+    return tableTxIds;
+  }
 
   public List<WriterResult> writerResults() {
     return writerResults;
