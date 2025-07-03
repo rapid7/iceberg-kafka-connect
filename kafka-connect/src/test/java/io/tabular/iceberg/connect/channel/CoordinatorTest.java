@@ -71,7 +71,7 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(0, ImmutableList.copyOf(table.snapshots().iterator()).size());
 
     List<TopicPartitionTransaction> transactionsProcessed =
-            ImmutableList.of(new TopicPartitionTransaction("topic", 1, 100L));
+            ImmutableList.of(new TopicPartitionTransaction("topic", 0, 100L));
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     UUID commitId =
         coordinatorTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, transactionsProcessed);
@@ -103,13 +103,13 @@ public class CoordinatorTest extends ChannelTestBase {
   @Test
   public void testCommitDelta() {
     List<TopicPartitionTransaction> transactionsProcessed =
-            ImmutableList.of(new TopicPartitionTransaction("topic", 1, 100L),
-            new TopicPartitionTransaction("topic", 2, 102L),
-            new TopicPartitionTransaction("topic", 3, 101L),
+            ImmutableList.of(new TopicPartitionTransaction("topic", 0, 100L),
+            new TopicPartitionTransaction("topic", 1, 102L),
+            new TopicPartitionTransaction("topic", 2, 101L),
             new TopicPartitionTransaction("topic", 3, 102L),
-            new TopicPartitionTransaction("topic", 3, 100L),
-            new TopicPartitionTransaction("topic", 3, 103L),
-            new TopicPartitionTransaction("topic", 4, 104L));
+            new TopicPartitionTransaction("topic", 4, 100L),
+            new TopicPartitionTransaction("topic", 5, 103L),
+            new TopicPartitionTransaction("topic", 6, 104L));
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     UUID commitId =
         coordinatorTest(
@@ -138,7 +138,7 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(
         Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
     Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
-    Assertions.assertEquals(104L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
+    Assertions.assertEquals(100L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
   }
 
   @Test
@@ -186,7 +186,7 @@ public class CoordinatorTest extends ChannelTestBase {
   @Test
   public void testShouldDeduplicateDataFilesBeforeAppending() {
     List<TopicPartitionTransaction> transactionsProcessed =
-            ImmutableList.of(new TopicPartitionTransaction("topic", 1, 100L));
+            ImmutableList.of(new TopicPartitionTransaction("topic", 0, 100L));
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     DataFile dataFile = EventTestUtil.createDataFile();
 
@@ -292,8 +292,8 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(0, ImmutableList.copyOf(table.snapshots().iterator()).size());
 
     Map<TopicPartition, Long> txIdPerPartition = ImmutableMap.of(
-            new TopicPartition("topic", 1), 100L,
-            new TopicPartition("topic", 2), 102L);
+            new TopicPartition("topic", 0), 100L,
+            new TopicPartition("topic", 1), 102L);
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     UUID commitId =
             coordinatorTxIdValidThroughTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, txIdPerPartition);
@@ -319,7 +319,7 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(
             Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
     Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
-    Assertions.assertEquals(102L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
+    Assertions.assertEquals(100L, Long.valueOf(summary.get(MAX_TX_ID__PROP)));
   }
 
   /**
@@ -472,7 +472,7 @@ public class CoordinatorTest extends ChannelTestBase {
             99L,
             Long.valueOf(secondSnapshot.summary().get(TX_ID_VALID_THROUGH_PROP)),
             "The lowest txId processed by all workers -1 should be the txId valid through");
-    Assertions.assertEquals(110L,
+    Assertions.assertEquals(100L,
             Long.valueOf(secondSnapshot.summary().get(MAX_TX_ID__PROP)),
             "Max txId processed by all workers should be the max txId");
   }

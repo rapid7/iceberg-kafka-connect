@@ -159,7 +159,7 @@ public class Coordinator extends Channel implements AutoCloseable {
    * @param newTxId    new transaction ID
    * @return the higher of the two transaction IDs accounting for the rollover scenario
    */
-  private long compareTxIds(long currentTxId, long newTxId) {
+  public long compareTxIds(long currentTxId, long newTxId) {
     long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
 
     if ((newTxId > currentTxId && newTxId - currentTxId <= wraparoundThreshold / 2) ||
@@ -259,11 +259,19 @@ public class Coordinator extends Channel implements AutoCloseable {
             .filter(deleteFile -> deleteFile.recordCount() > 0)
             .collect(toList());
 
+    List<Integer> partitions = envelopeList.stream()
+            .map(Envelope::partition)
+            .collect(Collectors.toList());
+
+    Map<Integer, Long> filteredTxIdPerPartition = highestTxIdPerPartition().entrySet().stream()
+            .filter(entry -> partitions.contains(entry.getKey()))
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
-      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
+      long txIdValidThrough = Utilities.calculateTxIdValidThrough(filteredTxIdPerPartition);
+      long maxTxId = Utilities.getMaxTxId(filteredTxIdPerPartition);
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
