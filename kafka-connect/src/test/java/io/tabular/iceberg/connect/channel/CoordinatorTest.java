@@ -103,7 +103,8 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals("{\"0\":3}", summary.get(OFFSETS_SNAPSHOT_PROP));
     Assertions.assertEquals(
             Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
-    Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
+    // 100 now as single partition
+    Assertions.assertEquals(100L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
     Assertions.assertEquals(100L, Long.valueOf(summary.get(MAX_TX_ID_PROP)));
   }
 
@@ -239,7 +240,8 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(1, ImmutableList.copyOf(snapshot.addedDataFiles(table.io())).size());
     Assertions.assertEquals(0, ImmutableList.copyOf(snapshot.addedDeleteFiles(table.io())).size());
     Map<String, String> summary = snapshot.summary();
-    Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
+    // 100 now as single partition
+    Assertions.assertEquals(100L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
     Assertions.assertEquals(100L, Long.valueOf(summary.get(MAX_TX_ID_PROP)));
   }
 

@@ -134,6 +134,11 @@ public class IntegrationTestBase {
     producer.send(new ProducerRecord<>(topicName, Long.toString(event.id()), eventStr));
   }
 
+  protected void send(String topicName, int partition, TestEvent event, boolean useSchema) {
+    String eventStr = event.serialize(useSchema);
+    producer.send(new ProducerRecord<>(topicName, partition, Long.toString(event.id()), eventStr));
+  }
+
   protected void flush() {
     producer.flush();
   }

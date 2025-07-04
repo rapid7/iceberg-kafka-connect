@@ -321,8 +321,11 @@ public class Utilities {
     // that is common across all partitions
     long minValue = Collections.min(highestTxIdPerPartition.values());
 
+    // If only one partition, return minValue directly.
     // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID
-    // If minValue is 1, then there are no completed transactions, so return 0
+    if (highestTxIdPerPartition.size() == 1) {
+      return minValue;
+    }
     return minValue > 1 ? minValue - 1 : 0;
   }
 

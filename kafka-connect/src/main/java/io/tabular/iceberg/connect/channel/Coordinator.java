@@ -141,7 +141,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
             UUID commitId = payload.commitId();
 
-            LOG.info("TRACE: Received transaction data complete event with {} txIds for commitId {} and here it is {}",
+            LOG.debug("Received transaction data complete event with {} txIds for commitId {} and here it is {}",
                     tableTxIds.size(), commitId, tableTxIds);
 
             // Only process if this commitId is not already present
@@ -157,7 +157,7 @@ public class Coordinator extends Channel implements AutoCloseable {
                 tableTxMap.merge(tp, txId.txId(), this::compareTxIds);
               });
             } else {
-              LOG.info("TRACE: Commit ID {} already processed, ignoring duplicate TransactionDataComplete.", commitId);
+              LOG.debug("Commit ID {} already processed, ignoring duplicate TransactionDataComplete.", commitId);
             }
           }
           if (commitState.isCommitReady(totalPartitionCount)) {
@@ -295,9 +295,6 @@ public class Coordinator extends Channel implements AutoCloseable {
       // Get transaction IDs for this specific commit and table
       Map<TopicPartition, Long> tableHighestTxIds = getCommitTxIdsForTable(tableIdentifier);
 
-      LOG.info("TRACE: THIS Committing to table {}, commit ID {}, vtts {}, data files: {}, delete files: {}, highest txIds: {}",
-              tableIdentifier, commitState.currentCommitId(), vtts, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
-
       long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
       long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
 
@@ -343,6 +340,12 @@ public class Coordinator extends Channel implements AutoCloseable {
       }
 
       Long snapshotId = latestSnapshot(table, branch.orElse(null)).snapshotId();
+
+      LOG.debug("Committed snapshot: snapshotId={}, tableIdentifier={}, commitId={}, vtts={}, " +
+                      "txIdValidThrough={}, maxTxId={}, dataFiles={}, deleteFiles={}, highestTxIds={}",
+              snapshotId, tableIdentifier, commitState.currentCommitId(), vtts,
+              txIdValidThrough, maxTxId, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
+
       Event event =
           new Event(
               config.controlGroupId(),
