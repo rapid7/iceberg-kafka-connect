@@ -127,7 +127,7 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
     public void testIcebergSinkMixedTxIdPartitions() {
         createTopic(testTopic, TEST_TOPIC_PARTITIONS);
         catalog.createTable(tableIdentifier, TEST_SCHEMA);
-        startConnector(true, 1);
+        startConnector(true, 3);
 
         send(testTopic, 0, new TestEvent(1, "type1", new Date(), "p0d1", null, 100L), true);
         send(testTopic, 1, new TestEvent(2, "type1", new Date(), "p1d1", null, 101L), true);

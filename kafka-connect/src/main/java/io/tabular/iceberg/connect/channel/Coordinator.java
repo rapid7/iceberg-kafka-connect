@@ -142,12 +142,8 @@ public class Coordinator extends Channel implements AutoCloseable {
             UUID commitId = payload.commitId();
             LOG.debug("Received transaction data complete event with {} txIds for commitId {} and here it is {}",
                     tableTxIds.size(), commitId, tableTxIds);
-            // Warn on duplicate commit IDs being received
             Map<TableIdentifier, Map<TopicPartition, Long>> currentCommitTxIds =
                     commitTxIdsByTable.computeIfAbsent(commitId, k -> Maps.newConcurrentMap());
-            if (currentCommitTxIds != commitTxIdsByTable.get(commitId)) {
-              LOG.warn("Commit ID {} already processed, consumed duplicate TransactionDataComplete.", commitId);
-            }
             tableTxIds.forEach(txId -> {
               TableIdentifier tableIdentifier = txId.tableIdentifier();
               TopicPartition tp = new TopicPartition(txId.topic(), txId.partition());
