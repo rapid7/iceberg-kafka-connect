@@ -152,7 +152,8 @@ public class IcebergWriter implements RecordWriter {
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
-
+    /* Pre-Filtering to align data written events with the filtering logic applied in the coordinator so our
+    TransactionDataComplete payload aligns with the data written events */
     long totalRecordCount = 0;
     if (writeResult.dataFiles() != null) {
       totalRecordCount += Arrays.stream(writeResult.dataFiles()).mapToLong(DataFile::recordCount).sum();

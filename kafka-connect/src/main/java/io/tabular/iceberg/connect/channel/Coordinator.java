@@ -140,25 +140,21 @@ public class Coordinator extends Channel implements AutoCloseable {
             TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
             List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
             UUID commitId = payload.commitId();
-
             LOG.debug("Received transaction data complete event with {} txIds for commitId {} and here it is {}",
                     tableTxIds.size(), commitId, tableTxIds);
-
-            // Only process if this commitId is not already present
-            if (!commitTxIdsByTable.containsKey(commitId)) {
-              Map<TableIdentifier, Map<TopicPartition, Long>> currentCommitTxIds =
-                      commitTxIdsByTable.computeIfAbsent(commitId, k -> Maps.newConcurrentMap());
-
-              tableTxIds.forEach(txId -> {
-                TableIdentifier tableIdentifier = txId.tableIdentifier();
-                TopicPartition tp = new TopicPartition(txId.topic(), txId.partition());
-                Map<TopicPartition, Long> tableTxMap = currentCommitTxIds.computeIfAbsent(
-                        tableIdentifier, k -> Maps.newConcurrentMap());
-                tableTxMap.merge(tp, txId.txId(), this::compareTxIds);
-              });
-            } else {
-              LOG.debug("Commit ID {} already processed, ignoring duplicate TransactionDataComplete.", commitId);
+            // Warn on duplicate commit IDs being received
+            Map<TableIdentifier, Map<TopicPartition, Long>> currentCommitTxIds =
+                    commitTxIdsByTable.computeIfAbsent(commitId, k -> Maps.newConcurrentMap());
+            if (currentCommitTxIds != commitTxIdsByTable.get(commitId)) {
+              LOG.warn("Commit ID {} already processed, consumed duplicate TransactionDataComplete.", commitId);
             }
+            tableTxIds.forEach(txId -> {
+              TableIdentifier tableIdentifier = txId.tableIdentifier();
+              TopicPartition tp = new TopicPartition(txId.topic(), txId.partition());
+              Map<TopicPartition, Long> tableTxMap = currentCommitTxIds.computeIfAbsent(
+                      tableIdentifier, k -> Maps.newConcurrentMap());
+              tableTxMap.merge(tp, txId.txId(), this::compareTxIds);
+            });
           }
           if (commitState.isCommitReady(totalPartitionCount)) {
             commit(false);
@@ -205,9 +201,9 @@ public class Coordinator extends Channel implements AutoCloseable {
     } catch (Exception e) {
       LOG.warn("Commit failed, will try again next cycle", e);
     } finally {
-      // Clean up transaction state for the completed commit
-      if (commitState.currentCommitId() != null) {
-        commitTxIdsByTable.remove(commitState.currentCommitId());
+      UUID commitId = commitState.currentCommitId();
+      if (commitId != null) {
+        commitTxIdsByTable.remove(commitId);
       }
       commitState.endCurrentCommit();
     }
