@@ -189,7 +189,7 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
         assertSnapshotTxIdProps(snapshot, 102, 101);
 
         assertThat(secondRecords).isEqualTo(2);
-        assertSnapshotTxIdProps(othersnapshot, 99, 98);
+        assertSnapshotTxIdProps(othersnapshot, 99, 98); // this currently fails with 102 and 101
 
 
     }
