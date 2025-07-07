@@ -86,19 +86,24 @@ public class IntegrationTestBase {
     Table table = catalog.loadTable(tableIdentifier);
     Map<String, String> props = latestSnapshot(table, branch).summary();
     assertThat(props)
-        .hasKeySatisfying(
-            new Condition<String>() {
-              @Override
-              public boolean matches(String str) {
-                return str.startsWith("kafka.connect.offsets.");
-              }
-            });
+            .hasKeySatisfying(
+                    new Condition<String>() {
+                      @Override
+                      public boolean matches(String str) {
+                        return str.startsWith("kafka.connect.offsets.");
+                      }
+                    });
     assertThat(props).containsKey("kafka.connect.commit-id");
   }
 
   protected List<DataFile> dataFiles(TableIdentifier tableIdentifier, String branch) {
     Table table = catalog.loadTable(tableIdentifier);
     return Lists.newArrayList(latestSnapshot(table, branch).addedDataFiles(table.io()));
+  }
+
+  protected List<DataFile> dataFilesList(TableIdentifier tableIdentifier, Snapshot snapshot) {
+    Table table = catalog.loadTable(tableIdentifier);
+    return Lists.newArrayList(snapshot.addedDataFiles(table.io()));
   }
 
   protected List<DeleteFile> deleteFiles(TableIdentifier tableIdentifier, String branch) {
@@ -113,9 +118,9 @@ public class IntegrationTestBase {
   protected void createTopic(String topicName, int partitions) {
     try {
       admin
-          .createTopics(ImmutableList.of(new NewTopic(topicName, partitions, (short) 1)))
-          .all()
-          .get(10, TimeUnit.SECONDS);
+              .createTopics(ImmutableList.of(new NewTopic(topicName, partitions, (short) 1)))
+              .all()
+              .get(10, TimeUnit.SECONDS);
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
       throw new RuntimeException(e);
     }
@@ -132,6 +137,11 @@ public class IntegrationTestBase {
   protected void send(String topicName, TestEvent event, boolean useSchema) {
     String eventStr = event.serialize(useSchema);
     producer.send(new ProducerRecord<>(topicName, Long.toString(event.id()), eventStr));
+  }
+
+  protected void send(String topicName, int partition, TestEvent event, boolean useSchema) {
+    String eventStr = event.serialize(useSchema);
+    producer.send(new ProducerRecord<>(topicName, partition, Long.toString(event.id()), eventStr));
   }
 
   protected void flush() {

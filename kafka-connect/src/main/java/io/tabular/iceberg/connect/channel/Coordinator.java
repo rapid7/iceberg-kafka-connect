@@ -259,19 +259,21 @@ public class Coordinator extends Channel implements AutoCloseable {
             .filter(deleteFile -> deleteFile.recordCount() > 0)
             .collect(toList());
 
-    List<Integer> partitions = envelopeList.stream()
-            .map(Envelope::partition)
-            .collect(Collectors.toList());
 
-    Map<Integer, Long> filteredTxIdPerPartition = highestTxIdPerPartition().entrySet().stream()
-            .filter(entry -> partitions.contains(entry.getKey()))
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    //possible fix
+//    List<Integer> partitions = envelopeList.stream()
+//            .map(Envelope::partition)
+//            .collect(Collectors.toList());
+//
+//    Map<Integer, Long> filteredTxIdPerPartition = highestTxIdPerPartition().entrySet().stream()
+//            .filter(entry -> partitions.contains(entry.getKey()))
+//            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      long txIdValidThrough = Utilities.calculateTxIdValidThrough(filteredTxIdPerPartition);
-      long maxTxId = Utilities.getMaxTxId(filteredTxIdPerPartition);
+      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
+      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
