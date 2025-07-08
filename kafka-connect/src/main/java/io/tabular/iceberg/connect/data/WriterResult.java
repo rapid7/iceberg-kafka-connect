@@ -19,10 +19,13 @@
 package io.tabular.iceberg.connect.data;
 
 import java.util.List;
+import java.util.Map;
+
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.kafka.common.TopicPartition;
 
 public class WriterResult {
 
@@ -30,16 +33,19 @@ public class WriterResult {
   private final List<DataFile> dataFiles;
   private final List<DeleteFile> deleteFiles;
   private final StructType partitionStruct;
+  private final Map<TopicPartition, Long> partitionMaxTxids;
 
   public WriterResult(
       TableIdentifier tableIdentifier,
       List<DataFile> dataFiles,
       List<DeleteFile> deleteFiles,
-      StructType partitionStruct) {
+      StructType partitionStruct,
+      Map<TopicPartition, Long> partitionMaxTxids) {
     this.tableIdentifier = tableIdentifier;
     this.dataFiles = dataFiles;
     this.deleteFiles = deleteFiles;
     this.partitionStruct = partitionStruct;
+    this.partitionMaxTxids = partitionMaxTxids;
   }
 
   public TableIdentifier tableIdentifier() {
@@ -56,5 +62,9 @@ public class WriterResult {
 
   public StructType partitionStruct() {
     return partitionStruct;
+  }
+
+  public Map<TopicPartition, Long> partitionMaxTxids() {
+    return partitionMaxTxids;
   }
 }

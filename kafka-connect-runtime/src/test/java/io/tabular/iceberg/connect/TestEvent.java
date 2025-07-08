@@ -62,7 +62,8 @@ public class TestEvent {
           .field("type", org.apache.kafka.connect.data.Schema.STRING_SCHEMA)
           .field("ts", Timestamp.SCHEMA)
           .field("payload", org.apache.kafka.connect.data.Schema.STRING_SCHEMA)
-          .field("op", org.apache.kafka.connect.data.Schema.OPTIONAL_STRING_SCHEMA);
+          .field("op", org.apache.kafka.connect.data.Schema.OPTIONAL_STRING_SCHEMA)
+          .field("txid", org.apache.kafka.connect.data.Schema.OPTIONAL_INT64_SCHEMA);
 
   public static final PartitionSpec TEST_SPEC =
       PartitionSpec.builderFor(TEST_SCHEMA).day("ts").build();
@@ -79,17 +80,27 @@ public class TestEvent {
   private final Date ts;
   private final String payload;
   private final String op;
+  private final Long txid;
 
   public TestEvent(long id, String type, Date ts, String payload) {
-    this(id, type, ts, payload, null);
+    this(id, type, ts, payload, null, null);
   }
 
   public TestEvent(long id, String type, Date ts, String payload, String op) {
+    this(id, type, ts, payload, op, null);
+  }
+
+  public TestEvent(long id, String type, Date ts, String payload, String op, Long txid) {
     this.id = id;
     this.type = type;
     this.ts = ts;
     this.payload = payload;
     this.op = op;
+    this.txid = txid;
+  }
+
+  public Long txid() {
+    return txid;
   }
 
   public long id() {
@@ -120,7 +131,8 @@ public class TestEvent {
               .put("type", type)
               .put("ts", ts)
               .put("payload", payload)
-              .put("op", op);
+              .put("op", op)
+              .put("txid", txid);
 
       String convertMethod =
           useSchema ? "convertToJsonWithEnvelope" : "convertToJsonWithoutEnvelope";
