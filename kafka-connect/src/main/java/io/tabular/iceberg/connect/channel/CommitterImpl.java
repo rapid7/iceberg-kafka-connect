@@ -180,6 +180,8 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
     //  TableTopicPartitionTransactions now
     List<TableTopicPartitionTransaction> tableTxIds = committable.getTableTxIds();
 
+    LOG.info("For commit={} sending response with tableTxids={}", commitId, tableTxIds);
+
     Event commitReady =
         new Event(
             config.controlGroupId(),

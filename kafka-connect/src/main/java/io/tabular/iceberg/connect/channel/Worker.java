@@ -67,6 +67,7 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
 
   @Override
   public synchronized Committable committable() {
+    LOG.info("Committing committable");
     List<WriterResult> writerResults =
             writers.values().stream()
                     .flatMap(writer -> writer.complete().stream())
@@ -76,7 +77,7 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
       long totalRecords = res.dataFiles().stream().mapToLong(DataFile::recordCount).sum() +
               res.deleteFiles().stream().mapToLong(DeleteFile::recordCount).sum();
 
-      LOG.debug("WriterResult for table {}: Total records = {}, TxID map = {}",
+      LOG.info("WriterResult for table {}: Total records = {}, TxID map = {}",
               res.tableIdentifier(), totalRecords, res.partitionMaxTxids());
     });
 
@@ -99,8 +100,8 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
                               tp.topic(), tp.partition(), catalogName, tableIdentifier, txId)));
     });
 
-    LOG.info("Committable ready. Found {} transaction IDs from {} writer results.",
-            finalTableTxIds.size(), writerResults.size());
+    LOG.info("For worker committable ready. Found {} transaction IDs from {} writer results. TableTxids: {}",
+            finalTableTxIds.size(), writerResults.size(), finalTableTxIds);
 
     Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
     Committable result = new Committable(offsets, finalTableTxIds, writerResults);

@@ -75,6 +75,7 @@ public class IcebergWriter implements RecordWriter {
       if (record.value() != null) {
         Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
         if (txId != null) {
+          LOG.info("Found txid {} for table {} and partition {}", txId, tableName, record.kafkaPartition());
           TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
           partitionMaxTxids.merge(tp, txId, Long::max);
         }
@@ -161,7 +162,7 @@ public class IcebergWriter implements RecordWriter {
     if (writeResult.deleteFiles() != null) {
       totalRecordCount += Arrays.stream(writeResult.deleteFiles()).mapToLong(DeleteFile::recordCount).sum();
     }
-
+    LOG.info("Writer for {} had Total record count: {}", tableName, totalRecordCount);
     if (totalRecordCount > 0) {
       writerResults.add(
               new WriterResult(
@@ -173,6 +174,7 @@ public class IcebergWriter implements RecordWriter {
     } else if (!partitionMaxTxids.isEmpty()) {
       LOG.debug(" Discarding {} txid entries for a batch that produced no records", partitionMaxTxids.size());
     }
+    LOG.info("Clearing down writer txids for {}, txId map {}", tableName, partitionMaxTxids);
     partitionMaxTxids.clear();
   }
 

@@ -140,7 +140,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
             List<TableTopicPartitionTransaction> tableTxIds = payload.tableTxIds();
             UUID commitId = payload.commitId();
-            LOG.debug("Received transaction data complete event with {} txIds for commitId {} and here it is {}",
+            LOG.info("Received transaction data complete event with {} txIds for commitId {} and here it is {}",
                     tableTxIds.size(), commitId, tableTxIds);
             Map<TableIdentifier, Map<TopicPartition, Long>> currentCommitTxIds =
                     commitTxIdsByTable.computeIfAbsent(commitId, k -> Maps.newConcurrentMap());
@@ -289,6 +289,7 @@ public class Coordinator extends Channel implements AutoCloseable {
 
       long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
       long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
+      LOG.info("Found txids for table {}: txIdValidThrough={}, maxTxId={}", tableIdentifier,  txIdValidThrough, maxTxId);
 
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
@@ -361,6 +362,7 @@ public class Coordinator extends Channel implements AutoCloseable {
    * This ensures we only use transaction data that belongs to the current commit.
    */
   private Map<TopicPartition, Long> getCommitTxIdsForTable(TableIdentifier tableIdentifier) {
+    LOG.info("Getting commitTxIds for table {} in commit {}", tableIdentifier, commitState.currentCommitId());
     if (commitState.currentCommitId() == null) {
       return Collections.emptyMap();
     }
@@ -369,6 +371,7 @@ public class Coordinator extends Channel implements AutoCloseable {
             commitTxIdsByTable.get(commitState.currentCommitId());
 
     if (currentCommitTxIds == null) {
+      LOG.info("currentCommitTxIds is null for for table {} in commit {}",  tableIdentifier, commitState.currentCommitId());
       return Collections.emptyMap();
     }
 

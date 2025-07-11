@@ -139,4 +139,18 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
         Object val = fields.get(position).getObjectProp(AvroSchemaUtil.FIELD_ID_PROP);
         return val == null ? -1 : (int) val;
     }
+
+    @Override
+    public String toString() {
+        return "TableTopicPartitionTransaction{" +
+                "topic='" + topic + '\'' +
+                ", partition=" + partition +
+                ", catalogName='" + catalogName + '\'' +
+                ", namespace=" + namespace +
+                ", tableName='" + tableName + '\'' +
+                ", txId=" + txId +
+                '}';
+    }
+
+
 }
