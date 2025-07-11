@@ -51,6 +51,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
+import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.StartCommit;
 import org.apache.iceberg.connect.events.TableReference;
@@ -132,6 +133,8 @@ public class Coordinator extends Channel implements AutoCloseable {
   private boolean receive(Envelope envelope) {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
+        DataWritten writtenEvent = (DataWritten) envelope.event().payload();
+        LOG.info("Received data written event {}", writtenEvent.commitId());
         commitState.addResponse(envelope);
         return true;
       case DATA_COMPLETE:

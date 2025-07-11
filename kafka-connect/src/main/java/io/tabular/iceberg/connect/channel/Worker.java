@@ -66,7 +66,7 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
   }
 
   @Override
-  public synchronized Committable committable() {
+  public Committable committable() {
     LOG.info("Committing committable");
     List<WriterResult> writerResults =
             writers.values().stream()
@@ -113,20 +113,20 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
   }
 
   @Override
-  public synchronized void close() throws IOException {
+  public void close() throws IOException {
     writers.values().forEach(RecordWriter::close);
     writers.clear();
     sourceOffsets.clear();
   }
 
   @Override
-  public synchronized void write(Collection<SinkRecord> sinkRecords) {
+  public void write(Collection<SinkRecord> sinkRecords) {
     if (sinkRecords != null && !sinkRecords.isEmpty()) {
       sinkRecords.forEach(this::save);
     }
   }
 
-  private synchronized void save(SinkRecord record) {
+  private void save(SinkRecord record) {
     // the consumer stores the offsets that corresponds to the next record to consume,
     // so increment the record offset by one
     sourceOffsets.put(
