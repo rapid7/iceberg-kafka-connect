@@ -59,7 +59,6 @@ public class TestContext {
   private final KafkaConnectContainer kafkaConnect;
   private final GenericContainer catalog;
   private final GenericContainer minio;
-  private final GenericContainer kafkaUi;
 
   private static final String LOCAL_INSTALL_DIR = "build/install";
   private static final String KC_PLUGIN_DIR = "/test/kafka-connect";
@@ -68,9 +67,6 @@ public class TestContext {
   private static final String KAFKA_IMAGE = "confluentinc/cp-kafka:7.5.1";
   private static final String CONNECT_IMAGE = "confluentinc/cp-kafka-connect:7.5.1";
   private static final String REST_CATALOG_IMAGE = "tabulario/iceberg-rest:0.6.0";
-
-  private static final String KAFKA_UI_IMAGE = "provectuslabs/kafka-ui:latest";
-  private static final int KAFKA_UI_PORT = 8080;
 
   private static final int MINIO_PORT = 9000;
   private static final int CATALOG_PORT = 8181;
@@ -114,14 +110,7 @@ public class TestContext {
             .withEnv("CONNECT_BOOTSTRAP_SERVERS", kafka.getNetworkAliases().get(0) + ":9092")
             .withEnv("CONNECT_OFFSET_FLUSH_INTERVAL_MS", "500");
 
-    kafkaUi = new GenericContainer<>(DockerImageName.parse(KAFKA_UI_IMAGE))
-            .withNetwork(network)
-            .dependsOn(kafka)
-            .withExposedPorts(KAFKA_UI_PORT)
-            .withEnv("KAFKA_CLUSTERS_0_NAME", "local")
-            .withEnv("KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS", kafka.getNetworkAliases().get(0) + ":9092");
-
-    Startables.deepStart(Stream.of(minio, catalog, kafka, kafkaConnect, kafkaUi)).join();
+    Startables.deepStart(Stream.of(minio, catalog, kafka, kafkaConnect)).join();
 
     try (S3Client s3 = initLocalS3Client()) {
       s3.createBucket(req -> req.bucket(BUCKET));
@@ -130,17 +119,12 @@ public class TestContext {
     Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
   }
 
-  private int getLocalKafkaUiPort() {
-    return kafkaUi.getMappedPort(KAFKA_UI_PORT);
-  }
-
   private void shutdown() {
     kafkaConnect.close();
     kafka.close();
     catalog.close();
     minio.close();
     network.close();
-    kafkaUi.close();
   }
 
   private int getLocalMinioPort() {

@@ -28,10 +28,11 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import io.tabular.iceberg.connect.events.DataWrittenTxId;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,7 +84,7 @@ class Deduplicated {
         tableIdentifier,
         envelopes,
         "data",
-        DataWritten::dataFiles,
+        DataWrittenTxId::dataFiles,
         dataFile -> dataFile.path().toString());
   }
 
@@ -98,7 +99,7 @@ class Deduplicated {
         tableIdentifier,
         envelopes,
         "delete",
-        DataWritten::deleteFiles,
+            DataWrittenTxId::deleteFiles,
         deleteFile -> deleteFile.path().toString());
   }
 
@@ -107,13 +108,13 @@ class Deduplicated {
       TableIdentifier tableIdentifier,
       List<Envelope> envelopes,
       String fileType,
-      Function<DataWritten, List<F>> extractFilesFromPayload,
+      Function<DataWrittenTxId, List<F>> extractFilesFromPayload,
       Function<F, String> extractPathFromFile) {
     List<Pair<F, SimpleEnvelope>> filesAndEnvelopes =
         envelopes.stream()
             .flatMap(
                 envelope -> {
-                  DataWritten payload = (DataWritten) envelope.event().payload();
+                  DataWrittenTxId payload = (DataWrittenTxId) envelope.event().payload();
                   List<F> files = extractFilesFromPayload.apply(payload);
                   if (files == null) {
                     return Stream.empty();
@@ -216,7 +217,7 @@ class Deduplicated {
       eventId = envelope.event().id();
       eventGroupId = envelope.event().groupId();
       eventTimestamp = envelope.event().timestamp();
-      payloadCommitId = ((DataWritten) envelope.event().payload()).commitId();
+      payloadCommitId = ((DataWrittenTxId) envelope.event().payload()).commitId();
     }
 
     @Override

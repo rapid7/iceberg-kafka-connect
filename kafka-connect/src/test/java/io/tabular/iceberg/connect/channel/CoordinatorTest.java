@@ -21,7 +21,10 @@ package io.tabular.iceberg.connect.channel;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import io.tabular.iceberg.connect.events.DataWrittenTxId;
 import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TopicPartitionTxId;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import io.tabular.iceberg.connect.fixtures.EventTestUtil;
 import java.time.Instant;
@@ -46,7 +49,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.AvroUtil;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
-import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.StartCommit;
@@ -76,12 +78,11 @@ public class CoordinatorTest extends ChannelTestBase {
 
     // CHANGED: Use the new transaction object, including the table reference
     TableReference tableRef = TableReference.of("catalog", TABLE_IDENTIFIER);
-    List<TableTopicPartitionTransaction> transactionsProcessed =
-            ImmutableList.of(new TableTopicPartitionTransaction("topic", 1, "catalog", TABLE_IDENTIFIER, 100L));
+    TopicPartitionTransaction topicPartitionTransaction = new TopicPartitionTransaction("topic", 1, 100L);
 
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     UUID commitId =
-            coordinatorTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, transactionsProcessed);
+            coordinatorTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, topicPartitionTransaction);
     table.refresh();
 
     assertThat(producer.history()).hasSize(3);
@@ -112,23 +113,14 @@ public class CoordinatorTest extends ChannelTestBase {
   public void testCommitDelta() {
     // CHANGED: Use the new transaction object
     TableReference tableRef = TableReference.of("catalog", TABLE_IDENTIFIER);
-    List<TableTopicPartitionTransaction> transactionsProcessed =
-            ImmutableList.of(
-                    new TableTopicPartitionTransaction("topic", 1, "catalog", TABLE_IDENTIFIER, 100L),
-                    new TableTopicPartitionTransaction("topic", 2, "catalog", TABLE_IDENTIFIER, 102L),
-                    new TableTopicPartitionTransaction("topic", 3, "catalog", TABLE_IDENTIFIER, 101L),
-                    new TableTopicPartitionTransaction("topic", 3, "catalog", TABLE_IDENTIFIER, 102L),
-                    new TableTopicPartitionTransaction("topic", 3, "catalog", TABLE_IDENTIFIER, 100L),
-                    new TableTopicPartitionTransaction("topic", 3, "catalog", TABLE_IDENTIFIER, 103L),
-                    new TableTopicPartitionTransaction("topic", 4, "catalog", TABLE_IDENTIFIER, 104L));
-
+    TopicPartitionTransaction topicPartitionTransaction = new TopicPartitionTransaction("topic", 1, 103L);
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     UUID commitId =
             coordinatorTest(
                     ImmutableList.of(EventTestUtil.createDataFile()),
                     ImmutableList.of(EventTestUtil.createDeleteFile()),
                     ts,
-                    transactionsProcessed);
+                    topicPartitionTransaction);
 
     assertThat(producer.history()).hasSize(3);
     assertThat(consumer.committed(ImmutableSet.of(CTL_TOPIC_PARTITION)))
@@ -149,14 +141,14 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals("{\"0\":3}", summary.get(OFFSETS_SNAPSHOT_PROP));
     Assertions.assertEquals(
             Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
-    Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
-    Assertions.assertEquals(104L, Long.valueOf(summary.get(MAX_TX_ID_PROP)));
+    Assertions.assertEquals(103L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
+    Assertions.assertEquals(103L, Long.valueOf(summary.get(MAX_TX_ID_PROP)));
   }
 
   @Test
   public void testCommitNoFiles() {
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
-    UUID commitId = coordinatorTest(ImmutableList.of(), ImmutableList.of(), ts, ImmutableList.of());
+    UUID commitId = coordinatorTest(ImmutableList.of(), ImmutableList.of(), ts, null);
 
     assertThat(producer.history()).hasSize(2);
     assertThat(consumer.committed(ImmutableSet.of(CTL_TOPIC_PARTITION)))
@@ -184,7 +176,7 @@ public class CoordinatorTest extends ChannelTestBase {
             ImmutableList.of(badDataFile),
             ImmutableList.of(),
             OffsetDateTime.ofInstant(Instant.ofEpochMilli(0L), ZoneOffset.UTC),
-            ImmutableList.of());
+            null);
 
     // no commit messages sent
     assertThat(producer.history()).hasSize(1);
@@ -199,8 +191,7 @@ public class CoordinatorTest extends ChannelTestBase {
   public void testShouldDeduplicateDataFilesBeforeAppending() {
     // CHANGED: Use the new transaction object
     TableReference tableRef = TableReference.of("catalog", TableIdentifier.of("db", "tbl"));
-    List<TableTopicPartitionTransaction> transactionsProcessed =
-            ImmutableList.of(new TableTopicPartitionTransaction("topic", 1, "catalog", TABLE_IDENTIFIER, 100L));
+    TopicPartitionTransaction topicPartitionTransaction = new TopicPartitionTransaction("topic", 1, 100L);
 
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     DataFile dataFile = EventTestUtil.createDataFile();
@@ -211,12 +202,13 @@ public class CoordinatorTest extends ChannelTestBase {
                       Event commitResponse =
                               new Event(
                                       config.controlGroupId(),
-                                      new DataWritten(
+                                      new DataWrittenTxId(
                                               StructType.of(),
                                               currentCommitId,
                                               tableRef,
                                               ImmutableList.of(dataFile, dataFile), // duplicated data files
-                                              ImmutableList.of()));
+                                              ImmutableList.of(),
+                                              topicPartitionTransaction));
 
                       return ImmutableList.of(
                               commitResponse,
@@ -225,8 +217,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                       config.controlGroupId(),
                                       new TransactionDataComplete(
                                               currentCommitId,
-                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)),
-                                              transactionsProcessed)));
+                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)))));
                     });
 
     assertCommitTable(1, commitId, ts);
@@ -241,7 +232,7 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(0, ImmutableList.copyOf(snapshot.addedDeleteFiles(table.io())).size());
     Map<String, String> summary = snapshot.summary();
     // 100 now as single partition
-    Assertions.assertEquals(100L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
+    Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
     Assertions.assertEquals(100L, Long.valueOf(summary.get(MAX_TX_ID_PROP)));
   }
 
@@ -259,12 +250,13 @@ public class CoordinatorTest extends ChannelTestBase {
                       Event duplicateCommitResponse =
                               new Event(
                                       config.controlGroupId(),
-                                      new DataWritten(
+                                      new DataWrittenTxId(
                                               StructType.of(),
                                               currentCommitId,
                                               tableRef,
                                               ImmutableList.of(),
-                                              ImmutableList.of(deleteFile, deleteFile))); // duplicate delete files
+                                              ImmutableList.of(deleteFile, deleteFile),// duplicate delete files
+                                              null));
 
                       return ImmutableList.of(
                               duplicateCommitResponse,
@@ -273,8 +265,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                       config.controlGroupId(),
                                       new TransactionDataComplete(
                                               currentCommitId,
-                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)),
-                                              ImmutableList.of(new TableTopicPartitionTransaction("topic", 1, "catalog", TABLE_IDENTIFIER, 100L)))));
+                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)))));
                     });
 
     assertCommitTable(1, commitId, ts);
@@ -312,18 +303,20 @@ public class CoordinatorTest extends ChannelTestBase {
 
     // CHANGED: This test now uses the richer object directly
     TableReference tableRef = TableReference.of("catalog", TABLE_IDENTIFIER);
-    Map<TopicPartition, Long> txIdPerPartition = ImmutableMap.of(
-            new TopicPartition("topic", 1), 100L,
-            new TopicPartition("topic", 2), 102L);
+
+
+    List<TopicPartitionTransaction> topicPartitionTransactions = ImmutableList.of(
+            new TopicPartitionTransaction("topic", 1, 100L),
+            new TopicPartitionTransaction("topic", 2, 102L));
 
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     UUID commitId =
-            coordinatorTxIdValidThroughTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, txIdPerPartition);
+            coordinatorTxIdValidThroughTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, topicPartitionTransactions);
     table.refresh();
 
     assertThat(producer.history()).hasSize(3);
     assertThat(consumer.committed(ImmutableSet.of(CTL_TOPIC_PARTITION)))
-            .isEqualTo(ImmutableMap.of(CTL_TOPIC_PARTITION, new OffsetAndMetadata(3L)));
+            .isEqualTo(ImmutableMap.of(CTL_TOPIC_PARTITION, new OffsetAndMetadata(4L)));
     assertCommitTable(1, commitId, ts);
     assertCommitComplete(2, commitId, ts);
 
@@ -337,7 +330,7 @@ public class CoordinatorTest extends ChannelTestBase {
 
     Map<String, String> summary = snapshot.summary();
     Assertions.assertEquals(commitId.toString(), summary.get(COMMIT_ID_SNAPSHOT_PROP));
-    Assertions.assertEquals("{\"0\":3}", summary.get(OFFSETS_SNAPSHOT_PROP));
+    Assertions.assertEquals("{\"0\":4}", summary.get(OFFSETS_SNAPSHOT_PROP));
     Assertions.assertEquals(
             Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
     Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
@@ -407,12 +400,14 @@ public class CoordinatorTest extends ChannelTestBase {
                       AvroUtil.encode(
                               new Event(
                                       config.controlGroupId(),
-                                      new DataWritten(
+                                      new DataWrittenTxId(
                                               spec.partitionType(),
                                               commitId,
                                               tableRef,
                                               ImmutableList.of(dataFile),
-                                              ImmutableList.of())))));
+                                              ImmutableList.of(),
+                                              new TopicPartitionTransaction("topic", 0, 99L))))));
+
       currentControlTopicOffset += 1;
 
       consumer.addRecord(
@@ -432,11 +427,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                                               0,
                                                               100L,
                                                               OffsetDateTime.ofInstant(
-                                                                      Instant.ofEpochMilli(100L), ZoneOffset.UTC))),
-                                              ImmutableList.of(
-                                                      new TableTopicPartitionTransaction(SRC_TOPIC_NAME, 0, "catalog", TABLE_IDENTIFIER, 100L),
-                                                      new TableTopicPartitionTransaction(SRC_TOPIC_NAME, 1, "catalog", TABLE_IDENTIFIER, 110L),
-                                                      new TableTopicPartitionTransaction(SRC_TOPIC_NAME, 2, "catalog", TABLE_IDENTIFIER, 102L)))))));
+                                                                      Instant.ofEpochMilli(100L), ZoneOffset.UTC))))))));
       currentControlTopicOffset += 1;
     }
 
@@ -459,8 +450,8 @@ public class CoordinatorTest extends ChannelTestBase {
     Assertions.assertEquals(commitId.toString(), secondSnapshot.summary().get(COMMIT_ID_SNAPSHOT_PROP));
     Assertions.assertEquals("{\"0\":5}", secondSnapshot.summary().get(OFFSETS_SNAPSHOT_PROP));
     Assertions.assertEquals("100", secondSnapshot.summary().get(VTTS_SNAPSHOT_PROP));
-    Assertions.assertEquals(99L, Long.valueOf(secondSnapshot.summary().get(TX_ID_VALID_THROUGH_PROP)));
-    Assertions.assertEquals(110L, Long.valueOf(secondSnapshot.summary().get(MAX_TX_ID_PROP)));
+    Assertions.assertEquals(98L, Long.valueOf(secondSnapshot.summary().get(TX_ID_VALID_THROUGH_PROP)));
+    Assertions.assertEquals(99L, Long.valueOf(secondSnapshot.summary().get(MAX_TX_ID_PROP)));
   }
 
   private void assertCommitTable(int idx, UUID commitId, OffsetDateTime ts) {
@@ -485,26 +476,26 @@ public class CoordinatorTest extends ChannelTestBase {
 
   // CHANGED: Helper method signature and implementation
   private UUID coordinatorTest(
-          List<DataFile> dataFiles, List<DeleteFile> deleteFiles, OffsetDateTime ts, List<TableTopicPartitionTransaction> transactionsProcessed) {
+          List<DataFile> dataFiles, List<DeleteFile> deleteFiles, OffsetDateTime ts, TopicPartitionTransaction topicPartitionTransaction) {
     return coordinatorTest(
             currentCommitId -> {
               Event commitResponse =
                       new Event(
                               config.controlGroupId(),
-                              new DataWritten(
+                              new DataWrittenTxId(
                                       StructType.of(),
                                       currentCommitId,
                                       TableReference.of("catalog", TableIdentifier.of("db", "tbl")),
                                       dataFiles,
-                                      deleteFiles));
+                                      deleteFiles,
+                                      topicPartitionTransaction));
 
               Event commitReady =
                       new Event(
                               config.controlGroupId(),
                               new TransactionDataComplete(
                                       currentCommitId,
-                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)),
-                                      transactionsProcessed));
+                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts))));
 
               return ImmutableList.of(commitResponse, commitReady);
             });
@@ -512,22 +503,22 @@ public class CoordinatorTest extends ChannelTestBase {
 
   // CHANGED: Helper method implementation
   private UUID coordinatorTxIdValidThroughTest(
-          List<DataFile> dataFiles, List<DeleteFile> deleteFiles, OffsetDateTime ts, Map<TopicPartition, Long> txIdPerPartition) {
+          List<DataFile> dataFiles, List<DeleteFile> deleteFiles, OffsetDateTime ts, List<TopicPartitionTransaction> topicPartitionTransactions) {
     return coordinatorTest(
             currentCommitId -> {
-              Event commitResponse =
-                      new Event(
-                              config.controlGroupId(),
-                              new DataWritten(
-                                      StructType.of(),
-                                      currentCommitId,
-                                      TableReference.of("catalog", TableIdentifier.of("db", "tbl")),
-                                      dataFiles,
-                                      deleteFiles));
 
-              TableReference tableRef = TableReference.of("catalog", TableIdentifier.of("db", "tbl"));
-              List<TableTopicPartitionTransaction> tableTxIds = txIdPerPartition.entrySet().stream()
-                      .map(entry -> new TableTopicPartitionTransaction(entry.getKey().topic(), entry.getKey().partition(), "catalog", TABLE_IDENTIFIER, entry.getValue()))
+              List<Event> DREvents = topicPartitionTransactions.stream()
+                      .map(entry -> {
+                               return new Event(
+                                        config.controlGroupId(),
+                                        new DataWrittenTxId(
+                                                StructType.of(),
+                                                currentCommitId,
+                                                TableReference.of("catalog", TableIdentifier.of("db", "tbl")),
+                                                dataFiles,
+                                                deleteFiles,
+                                                entry));
+                      })
                       .collect(Collectors.toList());
 
               Event commitReady =
@@ -535,12 +526,14 @@ public class CoordinatorTest extends ChannelTestBase {
                               config.controlGroupId(),
                               new TransactionDataComplete(
                                       currentCommitId,
-                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)),
-                                      tableTxIds));
+                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts))));
 
-              return ImmutableList.of(commitResponse, commitReady);
+
+              return ImmutableList.of(DREvents.get(0), DREvents.get(1), commitReady);
             });
   }
+
+
 
   private UUID coordinatorTest(Function<UUID, List<Event>> eventsFn) {
     when(config.commitIntervalMs()).thenReturn(0);
