@@ -529,8 +529,6 @@ public class CoordinatorTest extends ChannelTestBase {
             });
   }
 
-
-
   private UUID coordinatorTest(Function<UUID, List<Event>> eventsFn) {
     when(config.commitIntervalMs()).thenReturn(0);
     when(config.commitTimeoutMs()).thenReturn(Integer.MAX_VALUE);
