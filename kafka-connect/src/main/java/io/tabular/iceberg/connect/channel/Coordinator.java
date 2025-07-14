@@ -132,7 +132,7 @@ public class Coordinator extends Channel implements AutoCloseable {
           DataWrittenTxId payload = (DataWrittenTxId) envelope.event().payload();
           if (payload.topicPartitionTransaction() != null) {
             txIdsByTable.computeIfAbsent(payload.tableReference().identifier(),  k -> Lists.newArrayList());
-            txIdsByTable.get(payload.tableReference().identifier()).add(payload.topicPartitionTransaction());
+            txIdsByTable.get(payload.tableReference().identifier()).addAll(payload.topicPartitionTransaction());
           }
 
         }

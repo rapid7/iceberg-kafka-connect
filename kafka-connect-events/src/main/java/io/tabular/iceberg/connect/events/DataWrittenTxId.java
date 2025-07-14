@@ -30,6 +30,7 @@ import org.apache.iceberg.types.Types;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payload{
     private Types.StructType partitionType;
@@ -38,7 +39,7 @@ public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payloa
     private TableReference tableReference;
     private List<DataFile> dataFiles;
     private List<DeleteFile> deleteFiles;
-    private TopicPartitionTransaction topicPartitionTransaction;
+    private List<TopicPartitionTransaction> topicPartitionTransaction;
     private Types.StructType icebergSchema;
     private final Schema avroSchema;
 
@@ -48,7 +49,8 @@ public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payloa
     static final int DATA_FILES_ELEMENT = 10_303;
     static final int DELETE_FILES = 10_304;
     static final int DELETE_FILES_ELEMENT = 10_305;
-    static final int TOPIC_PARTITION_TRANSACTION = 10_306;
+    static final int TOPIC_PARTITION_TRANSACTIONS = 10_306;
+    static final int TOPIC_PARTITION_TRANSACTION_ELEMENT = 10_307;
 
     public DataWrittenTxId(Schema avroSchema) {
         this.avroSchema = avroSchema;
@@ -60,7 +62,7 @@ public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payloa
             TableReference tableReference,
             List<DataFile> dataFiles,
             List<DeleteFile> deleteFiles,
-            TopicPartitionTransaction topicPartitionTransaction) {
+            List<TopicPartitionTransaction> topicPartitionTransaction) {
         Preconditions.checkNotNull(commitId, "Commit ID cannot be null");
         Preconditions.checkNotNull(tableReference, "Table reference cannot be null");
         this.partitionType = partitionType;
@@ -94,7 +96,7 @@ public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payloa
         return deleteFiles;
     }
 
-    public TopicPartitionTransaction topicPartitionTransaction() {
+    public List<TopicPartitionTransaction> topicPartitionTransaction() {
         return topicPartitionTransaction;
     }
 
@@ -117,9 +119,11 @@ public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payloa
                                     "delete_files",
                                     Types.ListType.ofRequired(DELETE_FILES_ELEMENT, dataFileStruct)),
                             Types.NestedField.optional(
-                                    TOPIC_PARTITION_TRANSACTION,
-                                    "topic_partition_transaction", TopicPartitionTransaction.ICEBERG_SCHEMA)
-                            );
+                                    TOPIC_PARTITION_TRANSACTIONS,
+                                    "topic_partition_transactions",
+                                    Types.ListType.ofRequired(TOPIC_PARTITION_TRANSACTION_ELEMENT,
+                                            TopicPartitionTransaction.ICEBERG_SCHEMA)
+                            ));
         }
 
         return icebergSchema;
@@ -146,8 +150,13 @@ public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payloa
             case DELETE_FILES:
                 this.deleteFiles = (List<DeleteFile>) v;
                 return;
-            case TOPIC_PARTITION_TRANSACTION:
-                this.topicPartitionTransaction = convertToTopicPartitionTransaction((GenericData.Record) v);
+            case TOPIC_PARTITION_TRANSACTIONS:
+                if (v instanceof List) {
+                    List<GenericData.Record> records = (List<GenericData.Record>) v;
+                    this.topicPartitionTransaction = records.stream()
+                            .map(this::convertToTopicPartitionTransaction)
+                            .collect(Collectors.toList());
+                }
                 return;
             default:
                 // ignore the object, it must be from a newer version of the format
@@ -165,7 +174,7 @@ public class DataWrittenTxId implements org.apache.iceberg.connect.events.Payloa
                 return dataFiles;
             case DELETE_FILES:
                 return deleteFiles;
-            case TOPIC_PARTITION_TRANSACTION:
+            case TOPIC_PARTITION_TRANSACTIONS:
                 return topicPartitionTransaction;
             default:
                 throw new UnsupportedOperationException("Unknown field ordinal: " + i);

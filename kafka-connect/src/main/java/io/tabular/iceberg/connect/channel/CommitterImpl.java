@@ -202,11 +202,9 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
     maybeCoordinatorThread.ifPresent(CoordinatorThread::terminate);
   }
 
-  private TopicPartitionTransaction getTopicPartitionTransaction(Map<TopicPartition, Long> partitionMaxTxid) {
+  private List<TopicPartitionTransaction> getTopicPartitionTransaction(Map<TopicPartition, Long> partitionMaxTxid) {
     return partitionMaxTxid.entrySet().stream()
-            .findFirst()
             .map(x -> new TopicPartitionTransaction(x.getKey().topic(), x.getKey().partition(), x.getValue()))
-            .orElse(null);
-
+            .collect(toList());
   }
 }

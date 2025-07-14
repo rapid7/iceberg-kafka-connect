@@ -49,6 +49,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.AvroUtil;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
+import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.StartCommit;
@@ -82,7 +83,7 @@ public class CoordinatorTest extends ChannelTestBase {
 
     OffsetDateTime ts = OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
     UUID commitId =
-            coordinatorTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, topicPartitionTransaction);
+            coordinatorTest(ImmutableList.of(EventTestUtil.createDataFile()), ImmutableList.of(), ts, List.of(topicPartitionTransaction));
     table.refresh();
 
     assertThat(producer.history()).hasSize(3);
@@ -120,7 +121,7 @@ public class CoordinatorTest extends ChannelTestBase {
                     ImmutableList.of(EventTestUtil.createDataFile()),
                     ImmutableList.of(EventTestUtil.createDeleteFile()),
                     ts,
-                    topicPartitionTransaction);
+                    ImmutableList.of(topicPartitionTransaction));
 
     assertThat(producer.history()).hasSize(3);
     assertThat(consumer.committed(ImmutableSet.of(CTL_TOPIC_PARTITION)))
@@ -208,7 +209,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                               tableRef,
                                               ImmutableList.of(dataFile, dataFile), // duplicated data files
                                               ImmutableList.of(),
-                                              topicPartitionTransaction));
+                                              ImmutableList.of(topicPartitionTransaction)));
 
                       return ImmutableList.of(
                               commitResponse,
@@ -316,7 +317,7 @@ public class CoordinatorTest extends ChannelTestBase {
 
     assertThat(producer.history()).hasSize(3);
     assertThat(consumer.committed(ImmutableSet.of(CTL_TOPIC_PARTITION)))
-            .isEqualTo(ImmutableMap.of(CTL_TOPIC_PARTITION, new OffsetAndMetadata(4L)));
+            .isEqualTo(ImmutableMap.of(CTL_TOPIC_PARTITION, new OffsetAndMetadata(3L)));
     assertCommitTable(1, commitId, ts);
     assertCommitComplete(2, commitId, ts);
 
@@ -330,7 +331,7 @@ public class CoordinatorTest extends ChannelTestBase {
 
     Map<String, String> summary = snapshot.summary();
     Assertions.assertEquals(commitId.toString(), summary.get(COMMIT_ID_SNAPSHOT_PROP));
-    Assertions.assertEquals("{\"0\":4}", summary.get(OFFSETS_SNAPSHOT_PROP));
+    Assertions.assertEquals("{\"0\":3}", summary.get(OFFSETS_SNAPSHOT_PROP));
     Assertions.assertEquals(
             Long.toString(ts.toInstant().toEpochMilli()), summary.get(VTTS_SNAPSHOT_PROP));
     Assertions.assertEquals(99L, Long.valueOf(summary.get(TX_ID_VALID_THROUGH_PROP)));
@@ -406,7 +407,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                               tableRef,
                                               ImmutableList.of(dataFile),
                                               ImmutableList.of(),
-                                              new TopicPartitionTransaction("topic", 0, 99L))))));
+                                              ImmutableList.of(new TopicPartitionTransaction("topic", 0, 99L)))))));
 
       currentControlTopicOffset += 1;
 
@@ -476,7 +477,7 @@ public class CoordinatorTest extends ChannelTestBase {
 
   // CHANGED: Helper method signature and implementation
   private UUID coordinatorTest(
-          List<DataFile> dataFiles, List<DeleteFile> deleteFiles, OffsetDateTime ts, TopicPartitionTransaction topicPartitionTransaction) {
+          List<DataFile> dataFiles, List<DeleteFile> deleteFiles, OffsetDateTime ts, List<TopicPartitionTransaction> topicPartitionTransaction) {
     return coordinatorTest(
             currentCommitId -> {
               Event commitResponse =
@@ -507,19 +508,17 @@ public class CoordinatorTest extends ChannelTestBase {
     return coordinatorTest(
             currentCommitId -> {
 
-              List<Event> DREvents = topicPartitionTransactions.stream()
-                      .map(entry -> {
-                               return new Event(
-                                        config.controlGroupId(),
-                                        new DataWrittenTxId(
-                                                StructType.of(),
-                                                currentCommitId,
-                                                TableReference.of("catalog", TableIdentifier.of("db", "tbl")),
-                                                dataFiles,
-                                                deleteFiles,
-                                                entry));
-                      })
-                      .collect(Collectors.toList());
+              Event commitResponse =
+                      new Event(
+                              config.controlGroupId(),
+                              new DataWrittenTxId(
+                                      StructType.of(),
+                                      currentCommitId,
+                                      TableReference.of("catalog", TableIdentifier.of("db", "tbl")),
+                                      dataFiles,
+                                      deleteFiles,
+                                      topicPartitionTransactions));
+
 
               Event commitReady =
                       new Event(
@@ -529,7 +528,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                       ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts))));
 
 
-              return ImmutableList.of(DREvents.get(0), DREvents.get(1), commitReady);
+              return ImmutableList.of(commitResponse, commitReady);
             });
   }
 
