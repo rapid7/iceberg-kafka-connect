@@ -127,7 +127,7 @@ public class IntegrationTxIdPartitionTest extends IntegrationTestBase {
     }
 
     @Test
-    public void MultiTopicConnectorCorrectlySetsSnapshotMetadata() {
+    public void multiTopicConnectorCorrectlySetsSnapshotMetadata() {
         createTopic(testTopic, 1);
         catalog.createTable(tableIdentifier, TEST_SCHEMA);
         createTopic(secondTestTopic, 1);
@@ -148,8 +148,6 @@ public class IntegrationTxIdPartitionTest extends IntegrationTestBase {
 
         Snapshot snapshotSecondTable = awaitSnapshot(secondTableIdentifier);
 
-
-
         assertRecordCount(snapshotFirstTable, 3);
         assertSnapshotTxIdProps(snapshotFirstTable, 102, 102);
 
@@ -158,10 +156,8 @@ public class IntegrationTxIdPartitionTest extends IntegrationTestBase {
 
     }
 
-
-
     @Test
-    public void MultiTopicMultiPartitionConnectorCorrectlySetsSnapshotMetadata() {
+    public void multiTopicMultiPartitionConnectorCorrectlySetsSnapshotMetadata() {
         createTopic(testTopic, 2);
         catalog.createTable(tableIdentifier, TEST_SCHEMA);
         createTopic(secondTestTopic, 2);
@@ -184,8 +180,6 @@ public class IntegrationTxIdPartitionTest extends IntegrationTestBase {
         Snapshot snapshotFirstTable = awaitSnapshot(tableIdentifier);
 
         Snapshot snapshotSecondTable = awaitSnapshot(secondTableIdentifier);
-
-
 
         assertRecordCount(snapshotFirstTable, 5);
         assertSnapshotTxIdProps(snapshotFirstTable, 104, 101);
