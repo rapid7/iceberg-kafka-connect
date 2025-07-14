@@ -38,7 +38,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TopicPartitionTxId;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.avro.Schema;

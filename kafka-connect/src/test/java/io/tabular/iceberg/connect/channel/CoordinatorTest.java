@@ -22,9 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import io.tabular.iceberg.connect.events.DataWrittenTxId;
-import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
-import io.tabular.iceberg.connect.events.TopicPartitionTxId;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import io.tabular.iceberg.connect.fixtures.EventTestUtil;
 import java.time.Instant;
@@ -49,7 +47,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.AvroUtil;
 import org.apache.iceberg.connect.events.CommitComplete;
 import org.apache.iceberg.connect.events.CommitToTable;
-import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.StartCommit;
