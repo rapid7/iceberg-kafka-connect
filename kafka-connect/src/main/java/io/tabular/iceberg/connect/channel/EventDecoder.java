@@ -43,6 +43,7 @@ import org.apache.iceberg.connect.events.Payload;
 import org.apache.iceberg.connect.events.StartCommit;
 import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.connect.events.TopicPartitionOffset;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -111,7 +112,7 @@ public class EventDecoder {
                                   Instant.ofEpochMilli(t.timestamp()), ZoneOffset.UTC)))
               .collect(Collectors.toList());
 
-      return new TransactionDataComplete(pay.commitId(), converted);
+      return new TransactionDataComplete(pay.commitId(), converted, ImmutableList.of());
     } else if (payload instanceof CommitTablePayload) {
       CommitTablePayload pay = (CommitTablePayload) payload;
       return new CommitToTable(

@@ -182,7 +182,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
     Event commitReady =
         new Event(
             config.controlGroupId(),
-            new TransactionDataComplete(commitId, assignments));
+            new TransactionDataComplete(commitId, assignments, ImmutableList.of()));
     events.add(commitReady);
 
     Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();

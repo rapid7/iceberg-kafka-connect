@@ -215,7 +215,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                       config.controlGroupId(),
                                       new TransactionDataComplete(
                                               currentCommitId,
-                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)))));
+                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)), ImmutableList.of())));
                     });
 
     assertCommitTable(1, commitId, ts);
@@ -263,7 +263,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                       config.controlGroupId(),
                                       new TransactionDataComplete(
                                               currentCommitId,
-                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)))));
+                                              ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)), ImmutableList.of())));
                     });
 
     assertCommitTable(1, commitId, ts);
@@ -425,7 +425,7 @@ public class CoordinatorTest extends ChannelTestBase {
                                                               0,
                                                               100L,
                                                               OffsetDateTime.ofInstant(
-                                                                      Instant.ofEpochMilli(100L), ZoneOffset.UTC))))))));
+                                                                      Instant.ofEpochMilli(100L), ZoneOffset.UTC))), ImmutableList.of())))));
       currentControlTopicOffset += 1;
     }
 
@@ -493,7 +493,7 @@ public class CoordinatorTest extends ChannelTestBase {
                               config.controlGroupId(),
                               new TransactionDataComplete(
                                       currentCommitId,
-                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts))));
+                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)), ImmutableList.of()));
 
               return ImmutableList.of(commitResponse, commitReady);
             });
@@ -522,7 +522,7 @@ public class CoordinatorTest extends ChannelTestBase {
                               config.controlGroupId(),
                               new TransactionDataComplete(
                                       currentCommitId,
-                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts))));
+                                      ImmutableList.of(new TopicPartitionOffset("topic", 1, 1L, ts)), ImmutableList.of()));
 
 
               return ImmutableList.of(commitResponse, commitReady);

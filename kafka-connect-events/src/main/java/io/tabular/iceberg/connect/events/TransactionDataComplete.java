@@ -18,24 +18,33 @@
  */
 package io.tabular.iceberg.connect.events;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+
 import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericData;
 import org.apache.iceberg.avro.AvroSchemaUtil;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.TopicPartitionOffset;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.Types;
 
 public class TransactionDataComplete implements org.apache.iceberg.connect.events.Payload {
 
     private UUID commitId;
     private List<TopicPartitionOffset> assignments;
+    private List<TableTopicPartitionTransaction> tableTxIds;
     private final Schema avroSchema;
 
     static final int COMMIT_ID = 10_100;
     static final int ASSIGNMENTS = 10_101;
     static final int ASSIGNMENTS_ELEMENT = 10_102;
+    static final int TABLE_TX_IDS = 10_201;
+    static final int TABLE_TX_IDS_ELEMENT = 10_202;
 
     private static final Types.StructType ICEBERG_SCHEMA =
             Types.StructType.of(
@@ -43,7 +52,11 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
                     Types.NestedField.optional(
                             ASSIGNMENTS,
                             "assignments",
-                            Types.ListType.ofRequired(ASSIGNMENTS_ELEMENT, TopicPartitionOffset.ICEBERG_SCHEMA)));
+                            Types.ListType.ofRequired(ASSIGNMENTS_ELEMENT, TopicPartitionOffset.ICEBERG_SCHEMA)),
+                    Types.NestedField.optional(
+                            TABLE_TX_IDS,
+                            "table_tx_ids",
+                            Types.ListType.ofRequired(TABLE_TX_IDS_ELEMENT, TableTopicPartitionTransaction.ICEBERG_SCHEMA)));
 
     private static final Schema AVRO_SCHEMA = AvroSchemaUtil.convert(ICEBERG_SCHEMA,
             TransactionDataComplete.class.getName());
@@ -52,9 +65,10 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         this.avroSchema = avroSchema;
     }
 
-    public TransactionDataComplete(UUID commitId, List<TopicPartitionOffset> assignments) {
+    public TransactionDataComplete(UUID commitId, List<TopicPartitionOffset> assignments, List<TableTopicPartitionTransaction> tableTxIds) {
         this.commitId = commitId;
         this.assignments = assignments;
+        this.tableTxIds = tableTxIds;
         this.avroSchema = AVRO_SCHEMA;
     }
 
@@ -64,6 +78,10 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
 
     public List<TopicPartitionOffset> assignments() {
         return assignments;
+    }
+
+    public List<TableTopicPartitionTransaction> tableTxIds() {
+        return tableTxIds;
     }
 
     @Override
@@ -92,6 +110,11 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
             case ASSIGNMENTS:
                 this.assignments = (List<TopicPartitionOffset>) v;
                 return;
+            case TABLE_TX_IDS:
+                if (v instanceof List) {
+                    this.tableTxIds = Collections.emptyList();
+                }
+                return;
             default:
         }
     }
@@ -103,6 +126,8 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
                 return commitId;
             case ASSIGNMENTS:
                 return assignments;
+            case TABLE_TX_IDS:
+                return tableTxIds;
             default:
                 throw new UnsupportedOperationException("Unknown field index: " + i);
         }
@@ -114,5 +139,21 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
                 position >= 0 && position < fields.size(), "Invalid field position: " + position);
         Object val = fields.get(position).getObjectProp(AvroSchemaUtil.FIELD_ID_PROP);
         return val == null ? -1 : (int) val;
+    }
+
+    private static TableTopicPartitionTransaction toTableTopicPartitionTransaction(GenericData.Record record) {
+        String topic = record.get("topic").toString();
+        int partition = (int) record.get("partition");
+        Long txId = (Long) record.get("txId");
+        String tableName = record.get("table_name").toString();
+
+        List<String> namespace = ((List<?>) record.get("namespace")).stream()
+                .map(Object::toString)
+                .collect(Collectors.toList());
+        List<String> identifierParts = Lists.newArrayList(namespace);
+        identifierParts.add(tableName);
+        TableIdentifier tableIdentifier = TableIdentifier.of(identifierParts.toArray(new String[0]));
+
+        return new TableTopicPartitionTransaction(topic, partition, tableIdentifier, txId);
     }
 }
