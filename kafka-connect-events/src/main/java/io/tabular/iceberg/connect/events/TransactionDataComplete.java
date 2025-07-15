@@ -80,10 +80,6 @@ public class TransactionDataComplete implements org.apache.iceberg.connect.event
         return assignments;
     }
 
-    public List<TableTopicPartitionTransaction> tableTxIds() {
-        return tableTxIds;
-    }
-
     @Override
     public Schema getSchema() {
         return avroSchema;
