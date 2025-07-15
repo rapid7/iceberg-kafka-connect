@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
 import io.tabular.iceberg.connect.data.WriterResult;
+import io.tabular.iceberg.connect.events.DataWrittenTxId;
 import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
@@ -52,7 +53,6 @@ import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.common.DynConstructors;
 import org.apache.iceberg.connect.events.AvroUtil;
-import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.StartCommit;
@@ -245,8 +245,8 @@ class CommitterImplTest {
     assertThat(producerRecord.key()).isEqualTo(producerId.toString());
     Event event = AvroUtil.decode(producerRecord.value());
     assertThat(event.type()).isEqualTo(PayloadType.DATA_WRITTEN);
-    assertThat(event.payload()).isInstanceOf(DataWritten.class);
-    DataWritten payload = (DataWritten) event.payload();
+    assertThat(event.payload()).isInstanceOf(DataWrittenTxId.class);
+    DataWrittenTxId payload = (DataWrittenTxId) event.payload();
     assertThat(payload.commitId()).isEqualTo(expectedCommitId);
     assertThat(payload.tableReference().identifier()).isEqualTo(expectedTableIdentifier);
     assertThat(payload.tableReference().catalog()).isEqualTo(CATALOG_NAME);
@@ -279,15 +279,6 @@ class CommitterImplTest {
                             .map(e -> Pair.of(e.getKey(), e.getValue()))
                             .collect(Collectors.toList()));
 
-    assertThat(commitReadyPayload.tableTxIds()).hasSize(expectedTxIds.size());
-    for (int i = 0; i < expectedTxIds.size(); i++) {
-      TableTopicPartitionTransaction actual = commitReadyPayload.tableTxIds().get(i);
-      TableTopicPartitionTransaction expected = expectedTxIds.get(i);
-      assertThat(actual.topic()).isEqualTo(expected.topic());
-      assertThat(actual.partition()).isEqualTo(expected.partition());
-      assertThat(actual.tableIdentifier()).isEqualTo(expected.tableIdentifier());
-      assertThat(actual.txId()).isEqualTo(expected.txId());
-    }
   }
 
   private OffsetDateTime offsetDateTime(Long ms) {
@@ -356,14 +347,13 @@ class CommitterImplTest {
     Map<TopicPartition, Offset> sourceOffsets = ImmutableMap.of(SOURCE_TP0, new Offset(100L, 200L));
 
     List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
-            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
+            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), TABLE_1_IDENTIFIER, 100L)
     );
 
     CommittableSupplier committableSupplier =
             () ->
                     new Committable(
                             sourceOffsets,
-                            sourceTxIds,
                             ImmutableList.of(
                                     new WriterResult(
                                             TABLE_1_IDENTIFIER,
@@ -431,7 +421,6 @@ class CommitterImplTest {
     CommittableSupplier committableSupplier =
             () -> new Committable(
                     ImmutableMap.of(),
-                    ImmutableList.of(),
                     ImmutableList.of());
 
     try (CommitterImpl committerImpl =
@@ -482,7 +471,7 @@ class CommitterImplTest {
     Types.StructType partitionStruct = Types.StructType.of();
 
     List<TableTopicPartitionTransaction> sourceTxIds = ImmutableList.of(
-            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), CATALOG_NAME, TABLE_1_IDENTIFIER, 100L)
+            new TableTopicPartitionTransaction(SOURCE_TP0.topic(), SOURCE_TP0.partition(), TABLE_1_IDENTIFIER, 100L)
     );
 
     CommittableSupplier committableSupplier =
@@ -490,7 +479,6 @@ class CommitterImplTest {
                     new Committable(
                             ImmutableMap.of(
                                     sourceTp1, new Offset(100L, 200L)),
-                            sourceTxIds,
                             ImmutableList.of(
                                     new WriterResult(
                                             TABLE_1_IDENTIFIER,

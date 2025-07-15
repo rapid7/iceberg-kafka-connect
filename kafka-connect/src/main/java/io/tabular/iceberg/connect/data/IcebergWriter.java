@@ -161,7 +161,6 @@ public class IcebergWriter implements RecordWriter {
     if (writeResult.deleteFiles() != null) {
       totalRecordCount += Arrays.stream(writeResult.deleteFiles()).mapToLong(DeleteFile::recordCount).sum();
     }
-
     if (totalRecordCount > 0) {
       writerResults.add(
               new WriterResult(

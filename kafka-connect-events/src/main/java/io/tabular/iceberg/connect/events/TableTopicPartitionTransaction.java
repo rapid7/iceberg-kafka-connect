@@ -31,7 +31,6 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
 
     private String topic;
     private Integer partition;
-    private String catalogName;
     private List<String> namespace;
     private String tableName;
     private Long txId;
@@ -41,17 +40,15 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
     static final int TOPIC = 10_800;
     static final int PARTITION = 10_801;
     static final int TX_ID = 10_802;
-    static final int CATALOG_NAME = 10_803;
-    static final int NAMESPACE = 10_804;
-    static final int TABLE_NAME = 10_805;
-    static final int NAMESPACE_ELEMENT = 10_806;
+    static final int NAMESPACE = 10_803;
+    static final int TABLE_NAME = 10_804;
+    static final int NAMESPACE_ELEMENT = 10_805;
 
     public static final Types.StructType ICEBERG_SCHEMA =
             Types.StructType.of(
                     Types.NestedField.required(TOPIC, "topic", Types.StringType.get()),
                     Types.NestedField.required(PARTITION, "partition", Types.IntegerType.get()),
                     Types.NestedField.optional(TX_ID, "txId", Types.LongType.get()),
-                    Types.NestedField.required(CATALOG_NAME, "catalog_name", Types.StringType.get()),
                     Types.NestedField.required(NAMESPACE, "namespace", Types.ListType.ofRequired(NAMESPACE_ELEMENT, Types.StringType.get())),
                     Types.NestedField.required(TABLE_NAME, "table_name", Types.StringType.get())
             );
@@ -62,10 +59,9 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
         this.avroSchema = avroSchema;
     }
 
-    public TableTopicPartitionTransaction(String topic, int partition, String catalogName, TableIdentifier tableIdentifier, Long txId) {
+    public TableTopicPartitionTransaction(String topic, int partition, TableIdentifier tableIdentifier, Long txId) {
         this.topic = topic;
         this.partition = partition;
-        this.catalogName = catalogName;
         this.namespace = Lists.newArrayList(tableIdentifier.namespace().levels());
         this.tableName = tableIdentifier.name();
         this.txId = txId;
@@ -74,7 +70,6 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
 
     public String topic() { return topic; }
     public Integer partition() { return partition; }
-    public String catalogName() { return catalogName; }
     public Long txId() { return txId; }
 
     public TableIdentifier tableIdentifier() {
@@ -100,9 +95,6 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
             case TX_ID:
                 this.txId = (Long) v;
                 return;
-            case CATALOG_NAME:
-                this.catalogName = v == null ? null : v.toString();
-                return;
             case NAMESPACE:
                 if (v instanceof List) {
                     this.namespace = ((List<?>) v).stream()
@@ -124,7 +116,6 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
             case TOPIC: return topic;
             case PARTITION: return partition;
             case TX_ID: return txId;
-            case CATALOG_NAME: return catalogName;
             case NAMESPACE: return namespace;
             case TABLE_NAME: return tableName;
             default:
@@ -139,4 +130,5 @@ public class TableTopicPartitionTransaction implements org.apache.avro.generic.I
         Object val = fields.get(position).getObjectProp(AvroSchemaUtil.FIELD_ID_PROP);
         return val == null ? -1 : (int) val;
     }
+
 }

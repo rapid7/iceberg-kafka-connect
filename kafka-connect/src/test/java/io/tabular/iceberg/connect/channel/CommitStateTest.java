@@ -53,17 +53,17 @@ public class CommitStateTest {
     TransactionDataComplete payload1 = mock(TransactionDataComplete.class);
     when(payload1.commitId()).thenReturn(commitState.currentCommitId());
     when(payload1.assignments()).thenReturn(ImmutableList.of(tp, tp));
-    when(payload1.tableTxIds()).thenReturn(ImmutableList.of(tpt, tpt));
+
 
     TransactionDataComplete payload2 = mock(TransactionDataComplete.class);
     when(payload2.commitId()).thenReturn(commitState.currentCommitId());
     when(payload2.assignments()).thenReturn(ImmutableList.of(tp));
-    when(payload2.tableTxIds()).thenReturn(ImmutableList.of(tpt));
+
 
     TransactionDataComplete payload3 = mock(TransactionDataComplete.class);
     when(payload3.commitId()).thenReturn(UUID.randomUUID());
     when(payload3.assignments()).thenReturn(ImmutableList.of(tp));
-    when(payload3.tableTxIds()).thenReturn(ImmutableList.of(tpt));
+
 
     commitState.addReady(wrapInEnvelope(payload1));
     commitState.addReady(wrapInEnvelope(payload2));

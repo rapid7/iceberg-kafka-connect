@@ -26,19 +26,14 @@ import io.tabular.iceberg.connect.data.Offset;
 import io.tabular.iceberg.connect.data.RecordWriter;
 import io.tabular.iceberg.connect.data.Utilities;
 import io.tabular.iceberg.connect.data.WriterResult;
-import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
-import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkRecord;
@@ -66,44 +61,14 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
   }
 
   @Override
-  public synchronized Committable committable() {
+  public Committable committable() {
     List<WriterResult> writerResults =
             writers.values().stream()
                     .flatMap(writer -> writer.complete().stream())
                     .collect(toList());
 
-    writerResults.forEach(res -> {
-      long totalRecords = res.dataFiles().stream().mapToLong(DataFile::recordCount).sum() +
-              res.deleteFiles().stream().mapToLong(DeleteFile::recordCount).sum();
-
-      LOG.debug("WriterResult for table {}: Total records = {}, TxID map = {}",
-              res.tableIdentifier(), totalRecords, res.partitionMaxTxids());
-    });
-
-    Map<TableIdentifier, Map<TopicPartition, Long>> aggregatedTxIds = Maps.newHashMap();
-    writerResults.forEach(res -> {
-      if (res.partitionMaxTxids() != null && !res.partitionMaxTxids().isEmpty()) {
-        Map<TopicPartition, Long> tableTxIds =
-                aggregatedTxIds.computeIfAbsent(res.tableIdentifier(), k -> Maps.newHashMap());
-        res.partitionMaxTxids()
-                .forEach((tp, txid) -> tableTxIds.merge(tp, txid, Long::max));
-      }
-    });
-
-    List<TableTopicPartitionTransaction> finalTableTxIds = Lists.newArrayList();
-    aggregatedTxIds.forEach((tableIdentifier, partitionTxIds) -> {
-      String catalogName = config.catalogName();
-      partitionTxIds.forEach((tp, txId) ->
-              finalTableTxIds.add(
-                      new TableTopicPartitionTransaction(
-                              tp.topic(), tp.partition(), catalogName, tableIdentifier, txId)));
-    });
-
-    LOG.info("Committable ready. Found {} transaction IDs from {} writer results.",
-            finalTableTxIds.size(), writerResults.size());
-
     Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
-    Committable result = new Committable(offsets, finalTableTxIds, writerResults);
+    Committable result = new Committable(offsets, writerResults);
 
     writers.clear();
     sourceOffsets.clear();
@@ -112,20 +77,20 @@ class Worker implements Writer, AutoCloseable, CommittableSupplier {
   }
 
   @Override
-  public synchronized void close() throws IOException {
+  public void close() throws IOException {
     writers.values().forEach(RecordWriter::close);
     writers.clear();
     sourceOffsets.clear();
   }
 
   @Override
-  public synchronized void write(Collection<SinkRecord> sinkRecords) {
+  public void write(Collection<SinkRecord> sinkRecords) {
     if (sinkRecords != null && !sinkRecords.isEmpty()) {
       sinkRecords.forEach(this::save);
     }
   }
 
-  private synchronized void save(SinkRecord record) {
+  private void save(SinkRecord record) {
     // the consumer stores the offsets that corresponds to the next record to consume,
     // so increment the record offset by one
     sourceOffsets.put(

@@ -23,6 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
+import io.tabular.iceberg.connect.events.DataWrittenTxId;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -31,7 +33,6 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
@@ -123,8 +124,8 @@ class DeduplicatedTest {
   private Event commitResponseEvent(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
     return new Event(
         GROUP_ID,
-        new DataWritten(
-            Types.StructType.of(), PAYLOAD_COMMIT_ID, TABLE_NAME, dataFiles, deleteFiles));
+        new DataWrittenTxId(
+            Types.StructType.of(), PAYLOAD_COMMIT_ID, TABLE_NAME, dataFiles, deleteFiles, null));
   }
 
   private <F> String detectedDuplicateFileAcrossMultipleEvents(

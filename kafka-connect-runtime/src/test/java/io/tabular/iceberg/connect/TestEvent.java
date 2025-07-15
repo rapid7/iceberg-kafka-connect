@@ -40,21 +40,21 @@ import org.apache.kafka.connect.storage.ConverterType;
 public class TestEvent {
 
   public static final Schema TEST_SCHEMA =
-      new Schema(
-          ImmutableList.of(
-              Types.NestedField.required(1, "id", Types.LongType.get()),
-              Types.NestedField.required(2, "type", Types.StringType.get()),
-              Types.NestedField.required(3, "ts", Types.TimestampType.withZone()),
-              Types.NestedField.required(4, "payload", Types.StringType.get())),
-          ImmutableSet.of(1));
+          new Schema(
+                  ImmutableList.of(
+                          Types.NestedField.required(1, "id", Types.LongType.get()),
+                          Types.NestedField.required(2, "type", Types.StringType.get()),
+                          Types.NestedField.required(3, "ts", Types.TimestampType.withZone()),
+                          Types.NestedField.required(4, "payload", Types.StringType.get())),
+                  ImmutableSet.of(1));
 
   public static final Schema TEST_SCHEMA_NO_ID =
-      new Schema(
-          ImmutableList.of(
-              Types.NestedField.required(1, "id", Types.LongType.get()),
-              Types.NestedField.required(2, "type", Types.StringType.get()),
-              Types.NestedField.required(3, "ts", Types.TimestampType.withZone()),
-              Types.NestedField.required(4, "payload", Types.StringType.get())));
+          new Schema(
+                  ImmutableList.of(
+                          Types.NestedField.required(1, "id", Types.LongType.get()),
+                          Types.NestedField.required(2, "type", Types.StringType.get()),
+                          Types.NestedField.required(3, "ts", Types.TimestampType.withZone()),
+                          Types.NestedField.required(4, "payload", Types.StringType.get())));
 
   public static final org.apache.kafka.connect.data.Schema TEST_CONNECT_SCHEMA =
       SchemaBuilder.struct()
@@ -66,13 +66,13 @@ public class TestEvent {
           .field("txid", org.apache.kafka.connect.data.Schema.OPTIONAL_INT64_SCHEMA);
 
   public static final PartitionSpec TEST_SPEC =
-      PartitionSpec.builderFor(TEST_SCHEMA).day("ts").build();
+          PartitionSpec.builderFor(TEST_SCHEMA).day("ts").build();
 
   private static final JsonConverter JSON_CONVERTER = new JsonConverter();
 
   static {
     JSON_CONVERTER.configure(
-        ImmutableMap.of(ConverterConfig.TYPE_CONFIG, ConverterType.VALUE.getName()));
+            ImmutableMap.of(ConverterConfig.TYPE_CONFIG, ConverterType.VALUE.getName()));
   }
 
   private final long id;
@@ -126,22 +126,23 @@ public class TestEvent {
   protected String serialize(boolean useSchema) {
     try {
       Struct value =
-          new Struct(TEST_CONNECT_SCHEMA)
-              .put("id", id)
-              .put("type", type)
-              .put("ts", ts)
-              .put("payload", payload)
-              .put("op", op)
-              .put("txid", txid);
+
+              new Struct(TEST_CONNECT_SCHEMA)
+                      .put("id", id)
+                      .put("type", type)
+                      .put("ts", ts)
+                      .put("payload", payload)
+                      .put("op", op)
+                      .put("txid", txid);
 
       String convertMethod =
-          useSchema ? "convertToJsonWithEnvelope" : "convertToJsonWithoutEnvelope";
+              useSchema ? "convertToJsonWithEnvelope" : "convertToJsonWithoutEnvelope";
       JsonNode json =
-          DynMethods.builder(convertMethod)
-              .hiddenImpl(
-                  JsonConverter.class, org.apache.kafka.connect.data.Schema.class, Object.class)
-              .build(JSON_CONVERTER)
-              .invoke(TestEvent.TEST_CONNECT_SCHEMA, value);
+              DynMethods.builder(convertMethod)
+                      .hiddenImpl(
+                              JsonConverter.class, org.apache.kafka.connect.data.Schema.class, Object.class)
+                      .build(JSON_CONVERTER)
+                      .invoke(TestEvent.TEST_CONNECT_SCHEMA, value);
       return MAPPER.writeValueAsString(json);
     } catch (JsonProcessingException e) {
       throw new RuntimeException(e);

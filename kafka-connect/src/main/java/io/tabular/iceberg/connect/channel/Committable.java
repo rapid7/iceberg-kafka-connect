@@ -20,7 +20,6 @@ package io.tabular.iceberg.connect.channel;
 
 import io.tabular.iceberg.connect.data.Offset;
 import io.tabular.iceberg.connect.data.WriterResult;
-import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import java.util.List;
 import java.util.Map;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
@@ -31,25 +30,17 @@ class Committable {
 
   private final ImmutableMap<TopicPartition, Offset> offsetsByTopicPartition;
 
-  private final ImmutableList<TableTopicPartitionTransaction> tableTxIds;
-
   private final ImmutableList<WriterResult> writerResults;
 
   Committable(
           Map<TopicPartition, Offset> offsetsByTopicPartition,
-          List<TableTopicPartitionTransaction> tableTxIds,
           List<WriterResult> writerResults) {
     this.offsetsByTopicPartition = ImmutableMap.copyOf(offsetsByTopicPartition);
-    this.tableTxIds = ImmutableList.copyOf(tableTxIds);
     this.writerResults = ImmutableList.copyOf(writerResults);
   }
 
   public Map<TopicPartition, Offset> offsetsByTopicPartition() {
     return offsetsByTopicPartition;
-  }
-
-  public List<TableTopicPartitionTransaction> getTableTxIds() {
-    return tableTxIds;
   }
 
   public List<WriterResult> writerResults() {
