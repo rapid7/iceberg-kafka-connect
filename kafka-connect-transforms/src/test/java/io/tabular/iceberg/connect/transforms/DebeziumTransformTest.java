@@ -36,6 +36,7 @@ import org.junit.jupiter.api.Test;
 public class DebeziumTransformTest {
 
   private static final long TS_MS = System.currentTimeMillis();
+  private static final long TS_US = TS_MS * 1000;
 
   private static final Schema KEY_SCHEMA = SchemaBuilder.struct().field("account_id", Schema.INT64_SCHEMA).build();
 
@@ -53,12 +54,15 @@ public class DebeziumTransformTest {
       .field("snapshot", Schema.STRING_SCHEMA)
       .field("txId", Schema.OPTIONAL_INT64_SCHEMA)
       .field("gtid", Schema.OPTIONAL_STRING_SCHEMA)
+      .field("ts_ms", Schema.INT64_SCHEMA)
+      .field("ts_us", Schema.INT64_SCHEMA)
       .build();
 
   // Original VALUE_SCHEMA
   private static final Schema VALUE_SCHEMA = SchemaBuilder.struct()
       .field("op", Schema.STRING_SCHEMA)
       .field("ts_ms", Schema.INT64_SCHEMA)
+      .field("ts_us", Schema.INT64_SCHEMA)
       .field("source", SOURCE_SCHEMA)
       .field("before", ROW_SCHEMA)
       .field("after", ROW_SCHEMA)
@@ -98,8 +102,11 @@ public class DebeziumTransformTest {
       // Verify txid has been added
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_ms has been added
-      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
+      // Verify source_ts_us has been added from source.ts_us
+      Map<String, Object> sourceMap = (Map<String, Object>) ((Map<String, Object>) event.get("source"));
+      assertThat(value.get("source_ts_us")).isEqualTo(sourceMap.get("ts_us"));
+
+      assertThat(value.get("source_ts_ms")).isNotEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -128,8 +135,9 @@ public class DebeziumTransformTest {
       // Verify txid has been extracted from gtid
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_ms has been added
-      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
+      // Verify source_ts_us has been added from source.ts_us
+      Map<String, Object> sourceMap = (Map<String, Object>) ((Map<String, Object>) event.get("source"));
+      assertThat(value.get("source_ts_us")).isEqualTo(sourceMap.get("ts_us"));
     }
   }
 
@@ -158,8 +166,9 @@ public class DebeziumTransformTest {
       // Verify txid has been set to 1 as gtid is null when snapshotting
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_ms has been added
-      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
+      // Verify source_ts_us has been added from source.ts_us
+      Map<String, Object> sourceMap = (Map<String, Object>) ((Map<String, Object>) event.get("source"));
+      assertThat(value.get("source_ts_us")).isEqualTo(sourceMap.get("ts_us"));
     }
   }
 
@@ -187,10 +196,13 @@ public class DebeziumTransformTest {
       // Verify txid has been added
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_ms is added and correct
+      // Verify source_ts_ms is added and correct from source.ts_ms
+      Struct sourceStruct = event.getStruct("source");
       Schema tsmsSchema = value.schema().field("source_ts_ms").schema();
       assertThat(tsmsSchema).isEqualTo(Timestamp.SCHEMA);
-      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(sourceStruct.getInt64("ts_ms")));
+
+      assertThat(value.get("source_ts_ms")).isNotEqualTo(event.getInt64("ts_ms"));
     }
   }
 
@@ -218,10 +230,11 @@ public class DebeziumTransformTest {
       // Verify txid has been extracted from gtid
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_ms is added and correct
+      // Verify source_ts_ms is added and correct from source.ts_ms
+      Struct sourceStruct = event.getStruct("source");
       Schema tsmsSchema = value.schema().field("source_ts_ms").schema();
       assertThat(tsmsSchema).isEqualTo(Timestamp.SCHEMA);
-      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(sourceStruct.getInt64("ts_ms")));
     }
   }
 
@@ -249,10 +262,11 @@ public class DebeziumTransformTest {
       // Verify txid has been set to 1 as gtid is null when snapshotting
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_ms is added and correct
+      // Verify source_ts_ms is added and correct from source.ts_ms
+      Struct sourceStruct = event.getStruct("source");
       Schema tsmsSchema = value.schema().field("source_ts_ms").schema();
       assertThat(tsmsSchema).isEqualTo(Timestamp.SCHEMA);
-      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(TS_MS));
+      assertThat(value.get("source_ts_ms")).isEqualTo(new java.util.Date(sourceStruct.getInt64("ts_ms")));
     }
   }
 
@@ -266,6 +280,8 @@ public class DebeziumTransformTest {
     source.put("snapshot", snapshot);
     source.put("txId", txid);
     source.put("gtid", gtid);
+    source.put("ts_ms", TS_MS);
+    source.put("ts_us", TS_US);
 
     Map<String, Object> data = ImmutableMap.of(
         "account_id", 1,
@@ -274,7 +290,8 @@ public class DebeziumTransformTest {
 
     return ImmutableMap.of(
         "op", operation,
-        "ts_ms", TS_MS,
+        "ts_ms", TS_MS+1,
+        "ts_us", TS_US+1,
         "source", source,
         "before", data,
         "after", data);
@@ -289,7 +306,9 @@ public class DebeziumTransformTest {
         .put("connector", connector)
         .put("snapshot", snapshot)
         .put("txId", txid)
-        .put("gtid", gtid);
+        .put("gtid", gtid)
+        .put("ts_ms", TS_MS)
+        .put("ts_us", TS_US);
 
     Struct data = new Struct(ROW_SCHEMA)
         .put("account_id", 1L)
@@ -298,7 +317,8 @@ public class DebeziumTransformTest {
 
     return new Struct(VALUE_SCHEMA)
         .put("op", operation)
-        .put("ts_ms", TS_MS)
+        .put("ts_ms", TS_MS+1)
+        .put("ts_us", TS_US+1)
         .put("source", source)
         .put("before", data)
         .put("after", data);

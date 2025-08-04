@@ -102,7 +102,10 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
 
     // create the new value
     Schema newValueSchema = makeUpdatedSchema(payloadSchema, cdcSchema);
-    if (value.schema().field("ts_ms") != null) {
+
+    // check if source struct has ts_ms field
+    Struct sourceStruct = value.getStruct("source");
+    if (sourceStruct != null && sourceStruct.schema().field("ts_ms") != null) {
       newValueSchema = makeUpdatedSchema(newValueSchema, CustomFieldConstants.SOURCE_TIMESTAMP_MS, Timestamp.SCHEMA);
     }
 
@@ -113,8 +116,9 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     }
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.schema().field("ts_ms") != null) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(value.getInt64("ts_ms")));
+    // Set source_ts_ms from the source struct
+    if (sourceStruct != null && sourceStruct.schema().field("ts_ms") != null) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(sourceStruct.getInt64("ts_ms")));
     }
 
     return record.newRecord(
@@ -162,9 +166,10 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     Map<String, Object> newValue = Maps.newHashMap((Map<String, Object>) payload);
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    if (value.containsKey("ts_ms")) {
-      long tsms = ((Number) value.get("ts_ms")).longValue();
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, new java.util.Date(tsms));
+    // Set source_ts_us from the source map
+    Map<String, Object> sourceMap = Requirements.requireMap(value.get("source"), "Debezium transform source");
+    if (sourceMap.containsKey("ts_us")) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, sourceMap.get("ts_us"));
     }
 
     return record.newRecord(
