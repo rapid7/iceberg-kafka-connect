@@ -106,7 +106,7 @@ public class DebeziumTransformTest {
       Map<String, Object> sourceMap = (Map<String, Object>) ((Map<String, Object>) event.get("source"));
       assertThat(value.get("source_ts_us")).isEqualTo(sourceMap.get("ts_us"));
 
-      assertThat(value.get("source_ts_ms")).isNotEqualTo(new java.util.Date(TS_MS));
+      assertThat(value.get("source_ts_us")).isNotEqualTo(new java.util.Date(TS_MS));
     }
   }
 
