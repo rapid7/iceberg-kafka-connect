@@ -20,6 +20,7 @@ junit-ver = "5.10.0"
 kafka-ver = "3.7.2"
 logback-ver = "1.5.13"
 netty-ver = "4.1.118.Final"
+netty-codec-http-ver = "4.1.125.Final"
 parquet-avro-ver = "1.15.2"
 protobuf-java-ver = "3.25.5"
 slf4j-ver = "1.7.36"
@@ -63,7 +64,7 @@ kafka-connect-api = { module = "org.apache.kafka:connect-api", version.ref = "ka
 kafka-connect-json = { module = "org.apache.kafka:connect-json", version.ref = "kafka-ver" }
 kafka-connect-transforms = { module = "org.apache.kafka:connect-transforms", version.ref = "kafka-ver" }
 libthrift = { module = "org.apache.thrift:libthrift", version.ref = "libthrift-ver" }
-netty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty-ver" }
+netty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty-codec-http-ver" }
 netty-common = { module = "io.netty:netty-common", version.ref = "netty-ver" }
 netty-handler = { module = "io.netty:netty-handler", version.ref = "netty-ver" }
 parquet-avro = { module = "org.apache.parquet:parquet-avro", version.ref = "parquet-avro-ver" }
