@@ -23,6 +23,9 @@ import static java.util.stream.Collectors.toMap;
 
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Offset;
+import io.tabular.iceberg.connect.events.DataWrittenTxId;
+import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
@@ -30,11 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
-import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.PayloadType;
 import org.apache.iceberg.connect.events.StartCommit;
@@ -107,7 +106,7 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
             receive(
                 envelope,
                 // CommittableSupplier that always returns empty committables
-                () -> new Committable(ImmutableMap.of(), ImmutableMap.of(), ImmutableList.of())));
+                () -> new Committable(ImmutableMap.of(), ImmutableList.of())));
   }
 
   private Map<TopicPartition, Long> fetchStableConsumerOffsets(String groupId) {
@@ -151,12 +150,13 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
               Event commitResponse =
                   new Event(
                       config.controlGroupId(),
-                      new DataWritten(
+                      new DataWrittenTxId(
                           writerResult.partitionStruct(),
                           commitId,
                           TableReference.of(config.catalogName(), writerResult.tableIdentifier()),
                           writerResult.dataFiles(),
-                          writerResult.deleteFiles()));
+                          writerResult.deleteFiles(),
+                          getTopicPartitionTransaction(writerResult.partitionMaxTxids())));
 
               events.add(commitResponse);
             });
@@ -178,14 +178,11 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
                 })
             .collect(toList());
 
-    List<TopicPartitionTransaction> txIds = committable.txIdsByTopicPartition().entrySet().stream()
-            .map(entry -> new TopicPartitionTransaction(entry.getKey().topic(), entry.getKey().partition(), entry.getValue()))
-            .collect(toList());
 
     Event commitReady =
         new Event(
             config.controlGroupId(),
-            new TransactionDataComplete(commitId, assignments, txIds));
+            new TransactionDataComplete(commitId, assignments, ImmutableList.of()));
     events.add(commitReady);
 
     Map<TopicPartition, Offset> offsets = committable.offsetsByTopicPartition();
@@ -203,5 +200,11 @@ public class CommitterImpl extends Channel implements Committer, AutoCloseable {
   public void close() throws IOException {
     stop();
     maybeCoordinatorThread.ifPresent(CoordinatorThread::terminate);
+  }
+
+  private List<TopicPartitionTransaction> getTopicPartitionTransaction(Map<TopicPartition, Long> partitionMaxTxid) {
+    return partitionMaxTxid.entrySet().stream()
+            .map(x -> new TopicPartitionTransaction(x.getKey().topic(), x.getKey().partition(), x.getValue()))
+            .collect(toList());
   }
 }

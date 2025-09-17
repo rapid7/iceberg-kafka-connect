@@ -30,9 +30,9 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
+import io.tabular.iceberg.connect.events.DataWrittenTxId;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.connect.events.DataWritten;
 import org.apache.iceberg.connect.events.TopicPartitionOffset;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +58,7 @@ public class CommitState {
     if (!isCommitInProgress()) {
       LOG.debug(
           "Received data written with commit-id={} when no commit in progress, this can happen during recovery",
-          ((DataWritten) envelope.event().payload()).commitId());
+          ((DataWrittenTxId) envelope.event().payload()).commitId());
     }
   }
 
@@ -148,7 +148,7 @@ public class CommitState {
         .collect(
             groupingBy(
                 envelope ->
-                    ((DataWritten) envelope.event().payload())
+                    ((DataWrittenTxId) envelope.event().payload())
                         .tableReference()
                         .identifier()));
   }

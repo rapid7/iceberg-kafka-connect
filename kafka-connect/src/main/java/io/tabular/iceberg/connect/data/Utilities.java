@@ -31,11 +31,12 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+
+import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Table;
@@ -310,24 +311,27 @@ public class Utilities {
     }
   }
 
-  public static Long calculateTxIdValidThrough(Map<?, Long> highestTxIdPerPartition) {
-    if (highestTxIdPerPartition.isEmpty()) {
-      LOG.debug("Transaction Map is empty, returning 0");
+  public static Long calculateTxIdValidThrough(List<TopicPartitionTransaction> topicPartitionTransactions) {
+    if (topicPartitionTransactions.isEmpty()) {
+      LOG.warn("No transaction data to calculate txIdValidThrough");
       return 0L;
     }
 
-    LOG.debug("Transaction Map contains {} entries", highestTxIdPerPartition.size());
-    // Find the minimum value in the map, as it represents the highest transaction ID
+    // Find the minimum value in the lost, as it represents the highest transaction ID
     // that is common across all partitions
-    long minValue = Collections.min(highestTxIdPerPartition.values());
+    long minValue = topicPartitionTransactions.stream().mapToLong(TopicPartitionTransaction::txId).min().orElse(0L);
+
+    // If only one partition, return minValue directly.
+    if (topicPartitionTransactions.size() == 1) {
+      return minValue;
+    }
 
     // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID
-    // If minValue is 1, then there are no completed transactions, so return 0
     return minValue > 1 ? minValue - 1 : 0;
   }
 
-  public static Long getMaxTxId(Map<?, Long> highestTxIdPerPartition) {
-    return highestTxIdPerPartition.values().stream().max(Long::compareTo).orElse(0L);
+  public static Long getMaxTxId(List<TopicPartitionTransaction> topicPartitionTransactions) {
+    return topicPartitionTransactions.stream().mapToLong(TopicPartitionTransaction::txId).max().orElse(0L);
   }
 
   private Utilities() {}

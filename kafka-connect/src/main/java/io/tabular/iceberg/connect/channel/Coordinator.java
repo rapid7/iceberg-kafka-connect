@@ -24,19 +24,20 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tabular.iceberg.connect.IcebergSinkConfig;
 import io.tabular.iceberg.connect.data.Utilities;
+import io.tabular.iceberg.connect.events.DataWrittenTxId;
+import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
-import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -55,6 +56,7 @@ import org.apache.iceberg.connect.events.TableReference;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.Tasks;
 import org.apache.iceberg.util.ThreadPools;
 import org.apache.kafka.clients.admin.MemberDescription;
@@ -79,6 +81,8 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final ExecutorService exec;
   private final CommitState commitState;
 
+  private final Map<TableIdentifier, List<TopicPartitionTransaction>> txIdsByTable;
+
   public Coordinator(
       Catalog catalog,
       IcebergSinkConfig config,
@@ -95,6 +99,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
     this.exec = ThreadPools.newWorkerPool("iceberg-committer", config.commitThreads());
     this.commitState = new CommitState(config);
+    this.txIdsByTable = Maps.newHashMap();
 
     // initial poll with longer duration so the consumer will initialize...
     consumeAvailable(Duration.ofMillis(1000), this::receive);
@@ -123,20 +128,20 @@ public class Coordinator extends Channel implements AutoCloseable {
     switch (envelope.event().type()) {
       case DATA_WRITTEN:
         commitState.addResponse(envelope);
+        if (envelope.event().payload() instanceof DataWrittenTxId) {
+          DataWrittenTxId payload = (DataWrittenTxId) envelope.event().payload();
+          if (payload.topicPartitionTransaction() != null) {
+            txIdsByTable.computeIfAbsent(payload.tableReference().identifier(),  k -> Lists.newArrayList());
+            txIdsByTable.get(payload.tableReference().identifier()).addAll(payload.topicPartitionTransaction());
+          }
+
+        }
         return true;
       case DATA_COMPLETE:
-        commitState.addReady(envelope);
-        if (envelope.event().payload() instanceof TransactionDataComplete) {
-          TransactionDataComplete payload = (TransactionDataComplete) envelope.event().payload();
-          List<TopicPartitionTransaction> txIds = payload.txIds();
-          LOG.debug("Received transaction data complete event with {} txIds", txIds.size());
-          txIds.forEach(
-                  txId -> highestTxIdPerPartition().put(txId.partition(),
-                          compareTxIds(highestTxIdPerPartition().getOrDefault(txId.partition(), 0L), txId.txId())));
-        }
-        if (commitState.isCommitReady(totalPartitionCount)) {
-          commit(false);
-        }
+          commitState.addReady(envelope);
+          if (commitState.isCommitReady(totalPartitionCount)) {
+            commit(false);
+          }
         return true;
     }
     return false;
@@ -200,6 +205,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     // we should only get here if all tables committed successfully...
     commitConsumerOffsets();
     commitState.clearResponses();
+    txIdsByTable.clear();
 
     Event event =
         new Event(config.controlGroupId(), new CommitComplete(commitState.currentCommitId(), vtts));
@@ -262,8 +268,12 @@ public class Coordinator extends Channel implements AutoCloseable {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      long txIdValidThrough = Utilities.calculateTxIdValidThrough(highestTxIdPerPartition());
-      long maxTxId = Utilities.getMaxTxId(highestTxIdPerPartition());
+      // Get transaction IDs for this specific commit and table
+      List<TopicPartitionTransaction> tableHighestTxIds = getCommitTxIdsForTable(tableIdentifier);
+
+      long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
+      long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
+
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
 
@@ -306,6 +316,12 @@ public class Coordinator extends Channel implements AutoCloseable {
       }
 
       Long snapshotId = latestSnapshot(table, branch.orElse(null)).snapshotId();
+
+      LOG.debug("Committed snapshot: snapshotId={}, tableIdentifier={}, commitId={}, vtts={}, " +
+                      "txIdValidThrough={}, maxTxId={}, dataFiles={}, deleteFiles={}, highestTxIds={}",
+              snapshotId, tableIdentifier, commitState.currentCommitId(), vtts,
+              txIdValidThrough, maxTxId, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
+
       Event event =
           new Event(
               config.controlGroupId(),
@@ -323,6 +339,17 @@ public class Coordinator extends Channel implements AutoCloseable {
           commitState.currentCommitId(),
           vtts);
     }
+  }
+  /**
+   * Get the transaction IDs for a specific table in the current commit.
+   * This ensures we only use transaction data that belongs to the current commit.
+   */
+  private List<TopicPartitionTransaction> getCommitTxIdsForTable(TableIdentifier tableIdentifier) {
+    if (txIdsByTable.containsKey(tableIdentifier)) {
+      return txIdsByTable.get(tableIdentifier);
+    }
+    LOG.warn("No partition transactions found for table {} in commit {} ", tableIdentifier, commitState.currentCommitId());
+    return Collections.emptyList();
   }
 
   private void addTxDataToSnapshot(SnapshotUpdate<?> operation, long txIdValidThrough, long maxTxId) {
@@ -364,6 +391,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   @Override
   public void close() throws IOException {
     exec.shutdownNow();
+    txIdsByTable.clear();
     stop();
   }
 }

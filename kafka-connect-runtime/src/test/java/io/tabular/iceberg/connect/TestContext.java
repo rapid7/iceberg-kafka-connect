@@ -71,6 +71,9 @@ public class TestContext {
   private static final int MINIO_PORT = 9000;
   private static final int CATALOG_PORT = 8181;
 
+  private static final String DEBUG_SUSPEND_COMMAND =
+          "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005";
+
   private TestContext() {
     network = Network.newNetwork();
 

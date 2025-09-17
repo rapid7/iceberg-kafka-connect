@@ -28,7 +28,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-import io.tabular.iceberg.connect.events.TopicPartitionTransaction;
+import io.tabular.iceberg.connect.events.TableTopicPartitionTransaction;
 import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.connect.events.Event;
 import org.apache.iceberg.connect.events.Payload;
@@ -45,7 +45,7 @@ public class CommitStateTest {
   @Test
   public void testIsCommitReady() {
     TopicPartitionOffset tp = mock(TopicPartitionOffset.class);
-    TopicPartitionTransaction tpt = mock(TopicPartitionTransaction.class);
+    TableTopicPartitionTransaction tpt = mock(TableTopicPartitionTransaction.class);
 
     CommitState commitState = new CommitState(mock(IcebergSinkConfig.class));
     commitState.startNewCommit();
@@ -53,17 +53,17 @@ public class CommitStateTest {
     TransactionDataComplete payload1 = mock(TransactionDataComplete.class);
     when(payload1.commitId()).thenReturn(commitState.currentCommitId());
     when(payload1.assignments()).thenReturn(ImmutableList.of(tp, tp));
-    when(payload1.txIds()).thenReturn(ImmutableList.of(tpt, tpt));
+
 
     TransactionDataComplete payload2 = mock(TransactionDataComplete.class);
     when(payload2.commitId()).thenReturn(commitState.currentCommitId());
     when(payload2.assignments()).thenReturn(ImmutableList.of(tp));
-    when(payload2.txIds()).thenReturn(ImmutableList.of(tpt));
+
 
     TransactionDataComplete payload3 = mock(TransactionDataComplete.class);
     when(payload3.commitId()).thenReturn(UUID.randomUUID());
     when(payload3.assignments()).thenReturn(ImmutableList.of(tp));
-    when(payload3.txIds()).thenReturn(ImmutableList.of(tpt));
+
 
     commitState.addReady(wrapInEnvelope(payload1));
     commitState.addReady(wrapInEnvelope(payload2));

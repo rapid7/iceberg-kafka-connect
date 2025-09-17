@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
@@ -39,16 +40,13 @@ import org.apache.kafka.connect.sink.SinkRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// TODO: rename to WriterImpl later, minimize changes for clearer commit history for now
-class Worker implements Writer, AutoCloseable {
+class Worker implements Writer, AutoCloseable, CommittableSupplier {
 
   private static final Logger LOG = LoggerFactory.getLogger(Worker.class);
-  private static final String COL_TXID = "txid";
   private final IcebergSinkConfig config;
   private final IcebergWriterFactory writerFactory;
   private final Map<String, RecordWriter> writers;
   private final Map<TopicPartition, Offset> sourceOffsets;
-  private final Map<TopicPartition, Long> sourceTxIds;
 
   Worker(IcebergSinkConfig config, Catalog catalog) {
     this(config, new IcebergWriterFactory(catalog, config));
@@ -58,23 +56,24 @@ class Worker implements Writer, AutoCloseable {
   Worker(IcebergSinkConfig config, IcebergWriterFactory writerFactory) {
     this.config = config;
     this.writerFactory = writerFactory;
-    this.writers = Maps.newHashMap();
-    this.sourceOffsets = Maps.newHashMap();
-    this.sourceTxIds = Maps.newHashMap();
+    this.writers = Maps.newConcurrentMap();
+    this.sourceOffsets = Maps.newConcurrentMap();
   }
 
   @Override
   public Committable committable() {
-    List<WriterResult> writeResults =
-        writers.values().stream().flatMap(writer -> writer.complete().stream()).collect(toList());
+    List<WriterResult> writerResults =
+            writers.values().stream()
+                    .flatMap(writer -> writer.complete().stream())
+                    .collect(toList());
+
     Map<TopicPartition, Offset> offsets = Maps.newHashMap(sourceOffsets);
-    Map<TopicPartition, Long> txIds = Maps.newHashMap(sourceTxIds);
+    Committable result = new Committable(offsets, writerResults);
 
     writers.clear();
     sourceOffsets.clear();
-    sourceTxIds.clear();
 
-    return new Committable(offsets, txIds, writeResults);
+    return result;
   }
 
   @Override
@@ -82,7 +81,6 @@ class Worker implements Writer, AutoCloseable {
     writers.values().forEach(RecordWriter::close);
     writers.clear();
     sourceOffsets.clear();
-    sourceTxIds.clear();
   }
 
   @Override
@@ -98,14 +96,6 @@ class Worker implements Writer, AutoCloseable {
     sourceOffsets.put(
         new TopicPartition(record.topic(), record.kafkaPartition()),
         new Offset(record.kafkaOffset() + 1, record.timestamp()));
-
-    Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
-    if (txId != null) {
-      LOG.debug("Found transaction id {} in record", txId);
-      sourceTxIds.put(
-          new TopicPartition(record.topic(), record.kafkaPartition()),
-          txId);
-    }
 
     if (config.dynamicTablesEnabled()) {
       routeRecordDynamically(record);
