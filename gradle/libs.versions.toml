@@ -7,6 +7,7 @@ awaitility-ver = "4.2.0"
 bson-ver = "4.11.0"
 commonsBeanutils-ver = "1.11.0"
 commonsCompress = "1.26.0"
+commons-lang3-ver = "3.18.0"
 derby-ver = "10.17.1.0"
 guava-ver = "32.0.0-jre"
 hadoop-ver = "3.4.1"
@@ -18,7 +19,7 @@ jetty-server-ver = "9.4.57.v20241219"
 jetty-http-ver = "12.0.12"
 junit-ver = "5.10.0"
 kafka-ver = "3.7.2"
-logback-ver = "1.5.13"
+logback-ver = "1.5.19"
 netty-ver = "4.1.118.Final"
 netty-codec-http-ver = "4.1.125.Final"
 parquet-avro-ver = "1.15.2"
@@ -35,6 +36,7 @@ avro = { module = "org.apache.avro:avro", version.ref = "avro-ver" }
 aircompressor = { module = "io.airlift:aircompressor", version.ref = "aircompressor" }
 commonsBeanutils = { module = "commons-beanutils:commons-beanutils", version.ref = "commonsBeanutils-ver" }
 commonsCompress = { module = "org.apache.commons:commons-compress", version.ref = "commonsCompress" }
+commons-lang3 = { module = "org.apache.commons:commons-lang3", version.ref = "commons-lang3-ver" }
 derby = { module = "org.apache.derby:derby", version.ref = "derby-ver" }
 bson = { module = "org.mongodb:bson", version.ref = "bson-ver"}
 guava = { module = "com.google.guava:guava", version.ref = "guava-ver" }
