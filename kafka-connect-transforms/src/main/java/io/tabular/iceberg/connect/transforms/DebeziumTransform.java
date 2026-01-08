@@ -166,10 +166,10 @@ public class DebeziumTransform<R extends ConnectRecord<R>> implements Transforma
     Map<String, Object> newValue = Maps.newHashMap((Map<String, Object>) payload);
     newValue.put(CdcConstants.COL_CDC, cdcMetadata);
 
-    // Set source_ts_us from the source map
+    // Set source_ts_ms from the source map
     Map<String, Object> sourceMap = Requirements.requireMap(value.get("source"), "Debezium transform source");
-    if (sourceMap.containsKey("ts_us")) {
-      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_US, sourceMap.get("ts_us"));
+    if (sourceMap.containsKey("ts_ms")) {
+      newValue.put(CustomFieldConstants.SOURCE_TIMESTAMP_MS, sourceMap.get("ts_ms"));
     }
 
     return record.newRecord(

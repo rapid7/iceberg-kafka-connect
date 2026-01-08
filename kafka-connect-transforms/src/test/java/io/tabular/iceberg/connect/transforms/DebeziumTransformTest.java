@@ -102,11 +102,11 @@ public class DebeziumTransformTest {
       // Verify txid has been added
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_us has been added from source.ts_us
+      // Verify source_ts_ms has been added from source.ts_ms
       Map<String, Object> sourceMap = (Map<String, Object>) ((Map<String, Object>) event.get("source"));
-      assertThat(value.get("source_ts_us")).isEqualTo(sourceMap.get("ts_us"));
+      assertThat(value.get("source_ts_ms")).isEqualTo(sourceMap.get("ts_ms"));
 
-      assertThat(value.get("source_ts_us")).isNotEqualTo(new java.util.Date(TS_MS));
+      assertThat(value.get("source_ts_ms")).isNotEqualTo(new java.util.Date(TS_MS));
     }
   }
 
@@ -135,9 +135,9 @@ public class DebeziumTransformTest {
       // Verify txid has been extracted from gtid
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_us has been added from source.ts_us
+      // Verify source_ts_ms has been added from source.ts_ms
       Map<String, Object> sourceMap = (Map<String, Object>) ((Map<String, Object>) event.get("source"));
-      assertThat(value.get("source_ts_us")).isEqualTo(sourceMap.get("ts_us"));
+      assertThat(value.get("source_ts_ms")).isEqualTo(sourceMap.get("ts_ms"));
     }
   }
 
@@ -166,9 +166,11 @@ public class DebeziumTransformTest {
       // Verify txid has been set to 1 as gtid is null when snapshotting
       assertThat(cdcMetadata.get("txid")).isEqualTo(1L);
 
-      // Verify source_ts_us has been added from source.ts_us
+       // Verify source_ts_ms has been added from source.ts_ms
       Map<String, Object> sourceMap = (Map<String, Object>) ((Map<String, Object>) event.get("source"));
-      assertThat(value.get("source_ts_us")).isEqualTo(sourceMap.get("ts_us"));
+      System.err.println(value.get("source_ts_ms"));
+      System.err.println(sourceMap.get("ts_ms"));
+      assertThat(value.get("source_ts_ms")).isEqualTo(sourceMap.get("ts_ms"));
     }
   }
 
