@@ -78,7 +78,7 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
                         .config("value.converter", "org.apache.kafka.connect.json.JsonConverter")
                         .config("value.converter.schemas.enable", useSchema)
                         .config("iceberg.tables", tableIdentifier.toString())
-                        .config("iceberg.control.commit.interval-ms", 3000) // Longer commit interval
+                        .config("iceberg.control.commit.interval-ms", 5000) // Longer commit interval
                         .config("iceberg.control.commit.timeout-ms", Integer.MAX_VALUE)
                         .config("iceberg.kafka.auto.offset.reset", "earliest");
 
