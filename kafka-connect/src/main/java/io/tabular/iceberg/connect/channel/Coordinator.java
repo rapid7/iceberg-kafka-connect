@@ -73,6 +73,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   private static final Duration POLL_DURATION = Duration.ofMillis(1000);
   private static final String TXID_VALID_THROUGH_PROP = "txid-valid-through";
   private static final String TXID_MAX_PROP = "txid-max";
+  private static final String COMMIT_TYPE_PROP = "commit.type";
 
   private final Catalog catalog;
   private final IcebergSinkConfig config;
@@ -199,7 +200,7 @@ public class Coordinator extends Channel implements AutoCloseable {
         .stopOnFailure()
         .run(
             entry -> {
-              commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts);
+              commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts, partialCommit);
             });
 
     // we should only get here if all tables committed successfully...
@@ -230,7 +231,8 @@ public class Coordinator extends Channel implements AutoCloseable {
       TableIdentifier tableIdentifier,
       List<Envelope> envelopeList,
       String offsetsJson,
-      OffsetDateTime vtts) {
+      OffsetDateTime vtts,
+      Boolean partialCommit) {
     Table table;
     try {
       table = catalog.loadTable(tableIdentifier);
@@ -295,6 +297,7 @@ public class Coordinator extends Channel implements AutoCloseable {
               appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
             addTxDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
+            addCommitType(appendOp, partialCommit);
           }
 
           appendOp.commit();
@@ -360,6 +363,12 @@ public class Coordinator extends Channel implements AutoCloseable {
     } else {
         LOG.warn("No transaction data to add to snapshot");
     }
+  }
+
+  private void addCommitType (SnapshotUpdate<?> operation, boolean partialCommit) {
+    String commitType = partialCommit ? "partial" : "full";
+    operation.set(COMMIT_TYPE_PROP, commitType);
+    LOG.info("Set commit type to: {}", commitType);
   }
 
   private Snapshot latestSnapshot(Table table, String branch) {
