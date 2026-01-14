@@ -98,12 +98,13 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
         return catalog.loadTable(tableIdentifier).currentSnapshot();
     }
 
-    private void assertSnapshotTxIdProps(Snapshot snapshot, long expectedMax, long expectedValidThrough) {
+    private void assertSnapshotTxIdProps(Snapshot snapshot, long expectedMax, long expectedValidThrough, String commitType) {
         assertThat(snapshot).isNotNull();
         Map<String, String> summary = snapshot.summary();
         assertThat(summary.get("txid-max")).isEqualTo(String.valueOf(expectedMax));
         assertThat(summary.get("txid-valid-through"))
                 .isEqualTo(String.valueOf(expectedValidThrough));
+        assertThat(summary.get("commit.type")).isEqualTo(String.valueOf(commitType));
     }
 
     @Test
@@ -120,7 +121,7 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
         Snapshot snapshot = awaitSnapshot();
 
         // valid-through should equal the max txid.
-        assertSnapshotTxIdProps(snapshot, 102, 102);
+        assertSnapshotTxIdProps(snapshot, 102, 102, "full");
     }
 
     @Test
@@ -136,7 +137,7 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
 
         Snapshot snapshot = awaitSnapshot();
         // The max txid is the highest across all partitions, and valid-through is one less than that.
-        assertSnapshotTxIdProps(snapshot, 108, 99);
+        assertSnapshotTxIdProps(snapshot, 108, 99, "full");
     }
 
     @Test
@@ -162,6 +163,6 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
         // account for wraparound when comparing values from *different* partitions.
         // Expected max = simple max(5L, 4294967280L) = 4294967280L
         // Expected valid-through = simple min(5L, 4294967280L) - 1 = 4L
-        assertSnapshotTxIdProps(snapshot, highTxId1, 4L);
+        assertSnapshotTxIdProps(snapshot, highTxId1, 4L, "full");
     }
 }
