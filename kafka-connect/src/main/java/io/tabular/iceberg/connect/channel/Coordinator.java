@@ -365,7 +365,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     }
   }
 
-  private void addCommitType (SnapshotUpdate<?> operation, boolean partialCommit) {
+  private void addCommitType(SnapshotUpdate<?> operation, boolean partialCommit) {
     String commitType = partialCommit ? "partial" : "full";
     operation.set(COMMIT_TYPE_PROP, commitType);
     LOG.info("Set commit type to: {}", commitType);
