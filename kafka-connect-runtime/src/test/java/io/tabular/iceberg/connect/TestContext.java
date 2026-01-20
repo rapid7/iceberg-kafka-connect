@@ -25,6 +25,7 @@ import static io.tabular.iceberg.connect.TestConstants.BUCKET;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -83,7 +84,8 @@ public class TestContext {
             .withNetworkAliases("minio")
             .withExposedPorts(MINIO_PORT)
             .withCommand("server /data")
-            .waitingFor(new HttpWaitStrategy().forPort(MINIO_PORT).forPath("/minio/health/ready"));
+            .waitingFor(new HttpWaitStrategy().forPort(MINIO_PORT).forPath("/minio/health/ready"))
+            .withStartupTimeout(Duration.ofSeconds(120));
 
     catalog =
         new GenericContainer<>(DockerImageName.parse(REST_CATALOG_IMAGE))
@@ -97,7 +99,8 @@ public class TestContext {
             .withEnv("CATALOG_S3_ACCESS__KEY__ID", AWS_ACCESS_KEY)
             .withEnv("CATALOG_S3_SECRET__ACCESS__KEY", AWS_SECRET_KEY)
             .withEnv("CATALOG_S3_PATH__STYLE__ACCESS", "true")
-            .withEnv("AWS_REGION", AWS_REGION);
+            .withEnv("AWS_REGION", AWS_REGION)
+            .withStartupTimeout(Duration.ofSeconds(120));
 
     kafka = new KafkaContainer(DockerImageName.parse(KAFKA_IMAGE)).withNetwork(network);
 
@@ -108,7 +111,8 @@ public class TestContext {
             .withFileSystemBind(LOCAL_INSTALL_DIR, KC_PLUGIN_DIR)
             .withEnv("CONNECT_PLUGIN_PATH", KC_PLUGIN_DIR)
             .withEnv("CONNECT_BOOTSTRAP_SERVERS", kafka.getNetworkAliases().get(0) + ":9092")
-            .withEnv("CONNECT_OFFSET_FLUSH_INTERVAL_MS", "500");
+            .withEnv("CONNECT_OFFSET_FLUSH_INTERVAL_MS", "500")
+            .withStartupTimeout(Duration.ofSeconds(120));
 
     Startables.deepStart(Stream.of(minio, catalog, kafka, kafkaConnect)).join();
 
