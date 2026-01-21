@@ -269,12 +269,27 @@ public class Coordinator extends Channel implements AutoCloseable {
 
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
-    } else {
+      return;
+    }
+
+    try {
       // Get transaction IDs for this specific commit and table
       List<TopicPartitionTransaction> tableHighestTxIds = getCommitTxIdsForTable(tableIdentifier);
 
       long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
       long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
+
+      Snapshot currentSnapshot = latestSnapshot(table, branch.orElse(null));
+      if (currentSnapshot == null) {
+        LOG.info(
+                "Attempting to commit to table {}, no previous snapshot found",
+                tableIdentifier);
+      } else {
+        LOG.info(
+                "Attempting to commit to table {}, current snapshot ID: {}",
+                tableIdentifier,
+                currentSnapshot.snapshotId());
+      }
 
       if (deleteFiles.isEmpty()) {
         Transaction transaction = table.newTransaction();
@@ -341,6 +356,17 @@ public class Coordinator extends Channel implements AutoCloseable {
           snapshotId,
           commitState.currentCommitId(),
           vtts);
+    } catch (Exception e) {
+      LOG.error(
+              "Commit failed for table {}, commit ID {}, vtts {}, partial {}, data files {}, delete files {}",
+              tableIdentifier,
+              commitState.currentCommitId(),
+              vtts,
+              partialCommit,
+              dataFiles.size(),
+              deleteFiles.size(),
+              e);
+      throw e;
     }
   }
   /**
