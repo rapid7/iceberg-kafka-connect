@@ -38,6 +38,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
+import io.tabular.iceberg.connect.events.TransactionDataComplete;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -132,6 +133,12 @@ public class Coordinator extends Channel implements AutoCloseable {
         if (envelope.event().payload() instanceof DataWrittenTxId) {
           DataWrittenTxId payload = (DataWrittenTxId) envelope.event().payload();
           if (payload.topicPartitionTransaction() != null) {
+            String topicsWritten = payload.topicPartitionTransaction().stream().map(
+                            tpt -> " Topic:" + tpt.topic()+ " Partition:" + tpt.partition().toString() + " txid:" + tpt.txId().toString())
+                    .collect(Collectors.joining(", "));
+            LOG.info(
+                    "Received data written for commit-id={} for table {}, details {}",
+                    payload.commitId(), payload.tableReference().identifier().name(), topicsWritten);
             txIdsByTable.computeIfAbsent(payload.tableReference().identifier(),  k -> Lists.newArrayList());
             txIdsByTable.get(payload.tableReference().identifier()).addAll(payload.topicPartitionTransaction());
           }
@@ -139,10 +146,20 @@ public class Coordinator extends Channel implements AutoCloseable {
         }
         return true;
       case DATA_COMPLETE:
-          commitState.addReady(envelope);
-          if (commitState.isCommitReady(totalPartitionCount)) {
-            commit(false);
+        try {
+          if (envelope.event().payload() instanceof TransactionDataComplete) {
+            TransactionDataComplete completeEvent = (TransactionDataComplete)envelope.event().payload();
+            LOG.info(
+                    "Received complete event for commit-id={}", completeEvent.commitId());
           }
+        } catch (Exception ignored) {
+
+        }
+
+        commitState.addReady(envelope);
+        if (commitState.isCommitReady(totalPartitionCount)) {
+          commit(false);
+        }
         return true;
     }
     return false;
@@ -206,6 +223,7 @@ public class Coordinator extends Channel implements AutoCloseable {
     // we should only get here if all tables committed successfully...
     commitConsumerOffsets();
     commitState.clearResponses();
+    LOG.info("txids cleared on commit");
     txIdsByTable.clear();
 
     Event event =
@@ -400,6 +418,7 @@ public class Coordinator extends Channel implements AutoCloseable {
   @Override
   public void close() throws IOException {
     exec.shutdownNow();
+    LOG.info("txids cleared on closure");
     txIdsByTable.clear();
     stop();
   }
