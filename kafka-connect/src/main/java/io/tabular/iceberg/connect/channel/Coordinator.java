@@ -85,19 +85,19 @@ public class Coordinator extends Channel implements AutoCloseable {
   private final Map<TableIdentifier, List<TopicPartitionTransaction>> txIdsByTable;
 
   public Coordinator(
-          Catalog catalog,
-          IcebergSinkConfig config,
-          Collection<MemberDescription> members,
-          KafkaClientFactory clientFactory) {
+      Catalog catalog,
+      IcebergSinkConfig config,
+      Collection<MemberDescription> members,
+      KafkaClientFactory clientFactory) {
     // pass consumer group ID to which we commit low watermark offsets
     super("coordinator", config.controlGroupId() + "-coord", config, clientFactory);
 
     this.catalog = catalog;
     this.config = config;
     this.totalPartitionCount =
-            members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
+        members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
     this.snapshotOffsetsProp =
-            String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
+        String.format(OFFSETS_SNAPSHOT_PROP_FMT, config.controlTopic(), config.controlGroupId());
     this.exec = ThreadPools.newWorkerPool("iceberg-committer", config.commitThreads());
     this.commitState = new CommitState(config);
     this.txIdsByTable = Maps.newHashMap();
@@ -112,7 +112,7 @@ public class Coordinator extends Channel implements AutoCloseable {
       commitState.startNewCommit();
       LOG.info("Started new commit with commit-id={}", commitState.currentCommitId().toString());
       Event event =
-              new Event(config.controlGroupId(), new StartCommit(commitState.currentCommitId()));
+          new Event(config.controlGroupId(), new StartCommit(commitState.currentCommitId()));
       send(event);
       LOG.info("Sent workers commit trigger with commit-id={}", commitState.currentCommitId().toString());
 
@@ -139,10 +139,10 @@ public class Coordinator extends Channel implements AutoCloseable {
         }
         return true;
       case DATA_COMPLETE:
-        commitState.addReady(envelope);
-        if (commitState.isCommitReady(totalPartitionCount)) {
-          commit(false);
-        }
+          commitState.addReady(envelope);
+          if (commitState.isCommitReady(totalPartitionCount)) {
+            commit(false);
+          }
         return true;
     }
     return false;
@@ -168,12 +168,15 @@ public class Coordinator extends Channel implements AutoCloseable {
   private long compareTxIds(long currentTxId, long newTxId) {
     long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
 
-    if ((newTxId > currentTxId && newTxId - currentTxId <= wraparoundThreshold / 2) ||
-            (newTxId < currentTxId && currentTxId - newTxId > wraparoundThreshold / 2)) {
-      // Wraparound detected: newTxId is actually higher after wrapping around
+    if (currentTxId - newTxId > wraparoundThreshold / 2) {
+      // newTxId wrapped around and is actually higher
       return newTxId;
+    } else if (newTxId - currentTxId > wraparoundThreshold / 2) {
+      // currentTxId wrapped around and is actually higher
+      return currentTxId;
     }
 
+    // No wraparound, return the simple max
     return Math.max(currentTxId, newTxId);
   }
 
@@ -196,12 +199,12 @@ public class Coordinator extends Channel implements AutoCloseable {
     OffsetDateTime vtts = commitState.vtts(partialCommit);
 
     Tasks.foreach(commitMap.entrySet())
-            .executeWith(exec)
-            .stopOnFailure()
-            .run(
-                    entry -> {
-                      commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts, partialCommit);
-                    });
+        .executeWith(exec)
+        .stopOnFailure()
+        .run(
+            entry -> {
+              commitToTable(entry.getKey(), entry.getValue(), offsetsJson, vtts, partialCommit);
+            });
 
     // we should only get here if all tables committed successfully...
     commitConsumerOffsets();
@@ -209,14 +212,14 @@ public class Coordinator extends Channel implements AutoCloseable {
     txIdsByTable.clear();
 
     Event event =
-            new Event(config.controlGroupId(), new CommitComplete(commitState.currentCommitId(), vtts));
+        new Event(config.controlGroupId(), new CommitComplete(commitState.currentCommitId(), vtts));
     send(event);
 
     LOG.info(
-            "Commit {} complete, committed to {} table(s), vtts {}",
-            commitState.currentCommitId(),
-            commitMap.size(),
-            vtts);
+        "Commit {} complete, committed to {} table(s), vtts {}",
+        commitState.currentCommitId(),
+        commitMap.size(),
+        vtts);
   }
 
   private String offsetsJson() {
@@ -228,11 +231,11 @@ public class Coordinator extends Channel implements AutoCloseable {
   }
 
   private void commitToTable(
-          TableIdentifier tableIdentifier,
-          List<Envelope> envelopeList,
-          String offsetsJson,
-          OffsetDateTime vtts,
-          Boolean partialCommit) {
+      TableIdentifier tableIdentifier,
+      List<Envelope> envelopeList,
+      String offsetsJson,
+      OffsetDateTime vtts,
+      Boolean partialCommit) {
     Table table;
     try {
       table = catalog.loadTable(tableIdentifier);
@@ -246,121 +249,101 @@ public class Coordinator extends Channel implements AutoCloseable {
     Map<Integer, Long> committedOffsets = lastCommittedOffsetsForTable(table, branch.orElse(null));
 
     List<Envelope> filteredEnvelopeList =
-            envelopeList.stream()
-                    .filter(
-                            envelope -> {
-                              Long minOffset = committedOffsets.get(envelope.partition());
-                              return minOffset == null || envelope.offset() >= minOffset;
-                            })
-                    .collect(toList());
+        envelopeList.stream()
+            .filter(
+                envelope -> {
+                  Long minOffset = committedOffsets.get(envelope.partition());
+                  return minOffset == null || envelope.offset() >= minOffset;
+                })
+            .collect(toList());
 
     List<DataFile> dataFiles =
-            Deduplicated.dataFiles(commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
-                    .stream()
-                    .filter(dataFile -> dataFile.recordCount() > 0)
-                    .collect(toList());
+        Deduplicated.dataFiles(commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
+            .stream()
+            .filter(dataFile -> dataFile.recordCount() > 0)
+            .collect(toList());
 
     List<DeleteFile> deleteFiles =
-            Deduplicated.deleteFiles(
-                            commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
-                    .stream()
-                    .filter(deleteFile -> deleteFile.recordCount() > 0)
-                    .collect(toList());
+        Deduplicated.deleteFiles(
+                commitState.currentCommitId(), tableIdentifier, filteredEnvelopeList)
+            .stream()
+            .filter(deleteFile -> deleteFile.recordCount() > 0)
+            .collect(toList());
 
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info("Nothing to commit to table {}, skipping", tableIdentifier);
     } else {
-      try {
-        LOG.info(
-                "Starting commit for table {}, commit ID {}, with {} data files and {} delete files",
-                tableIdentifier,
-                commitState.currentCommitId(),
-                dataFiles.size(),
-                deleteFiles.size());
+      // Get transaction IDs for this specific commit and table
+      List<TopicPartitionTransaction> tableHighestTxIds = getCommitTxIdsForTable(tableIdentifier);
 
-        // Get transaction IDs for this specific commit and table
-        List<TopicPartitionTransaction> tableHighestTxIds = getCommitTxIdsForTable(tableIdentifier);
+      long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
+      long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
 
-        long txIdValidThrough = Utilities.calculateTxIdValidThrough(tableHighestTxIds);
-        long maxTxId = Utilities.getMaxTxId(tableHighestTxIds);
+      if (deleteFiles.isEmpty()) {
+        Transaction transaction = table.newTransaction();
 
-        if (deleteFiles.isEmpty()) {
-          Transaction transaction = table.newTransaction();
+        Map<Integer, List<DataFile>> filesBySpec =
+            dataFiles.stream()
+                .collect(Collectors.groupingBy(DataFile::specId, Collectors.toList()));
 
-          Map<Integer, List<DataFile>> filesBySpec =
-                  dataFiles.stream()
-                          .collect(Collectors.groupingBy(DataFile::specId, Collectors.toList()));
+        List<List<DataFile>> list = Lists.newArrayList(filesBySpec.values());
+        int lastIdx = list.size() - 1;
+        for (int i = 0; i <= lastIdx; i++) {
+          AppendFiles appendOp = transaction.newAppend();
+          branch.ifPresent(appendOp::toBranch);
 
-          List<List<DataFile>> list = Lists.newArrayList(filesBySpec.values());
-          int lastIdx = list.size() - 1;
-          for (int i = 0; i <= lastIdx; i++) {
-            AppendFiles appendOp = transaction.newAppend();
-            branch.ifPresent(appendOp::toBranch);
-
-            list.get(i).forEach(appendOp::appendFile);
-            appendOp.set(COMMIT_ID_SNAPSHOT_PROP, commitState.currentCommitId().toString());
-            if (i == lastIdx) {
-              appendOp.set(snapshotOffsetsProp, offsetsJson);
-              if (vtts != null) {
-                appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
-              }
-              addTxDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
-              addCommitType(appendOp, partialCommit);
+          list.get(i).forEach(appendOp::appendFile);
+          appendOp.set(COMMIT_ID_SNAPSHOT_PROP, commitState.currentCommitId().toString());
+          if (i == lastIdx) {
+            appendOp.set(snapshotOffsetsProp, offsetsJson);
+            if (vtts != null) {
+              appendOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
             }
-
-            appendOp.commit();
+            addTxDataToSnapshot(appendOp, txIdValidThrough, maxTxId);
+            addCommitType(appendOp, partialCommit);
           }
 
-          transaction.commitTransaction();
-        } else {
-          RowDelta deltaOp = table.newRowDelta();
-          branch.ifPresent(deltaOp::toBranch);
-          deltaOp.set(snapshotOffsetsProp, offsetsJson);
-          deltaOp.set(COMMIT_ID_SNAPSHOT_PROP, commitState.currentCommitId().toString());
-          if (vtts != null) {
-            deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
-          }
-          addTxDataToSnapshot(deltaOp, txIdValidThrough, maxTxId);
-          dataFiles.forEach(deltaOp::addRows);
-          deleteFiles.forEach(deltaOp::addDeletes);
-          deltaOp.commit();
+          appendOp.commit();
         }
 
-        Long snapshotId = latestSnapshot(table, branch.orElse(null)).snapshotId();
-
-        LOG.debug("Committed snapshot: snapshotId={}, tableIdentifier={}, commitId={}, vtts={}, " +
-                        "txIdValidThrough={}, maxTxId={}, dataFiles={}, deleteFiles={}, highestTxIds={}",
-                snapshotId, tableIdentifier, commitState.currentCommitId(), vtts,
-                txIdValidThrough, maxTxId, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
-
-        Event event =
-                new Event(
-                        config.controlGroupId(),
-                        new CommitToTable(
-                                commitState.currentCommitId(),
-                                TableReference.of(config.catalogName(), tableIdentifier),
-                                snapshotId,
-                                vtts));
-        send(event);
-
-        LOG.info(
-                "Commit complete to table {}, snapshot {}, commit ID {}, vtts {}",
-                tableIdentifier,
-                snapshotId,
-                commitState.currentCommitId(),
-                vtts);
-      } catch (Exception e) {
-        LOG.error(
-                "Commit failed for table {}, commit ID {}, vtts {}, partial {}, data files {}, delete files {}",
-                tableIdentifier,
-                commitState.currentCommitId(),
-                vtts,
-                partialCommit,
-                dataFiles.size(),
-                deleteFiles.size(),
-                e);
-        throw e;
+        transaction.commitTransaction();
+      } else {
+        RowDelta deltaOp = table.newRowDelta();
+        branch.ifPresent(deltaOp::toBranch);
+        deltaOp.set(snapshotOffsetsProp, offsetsJson);
+        deltaOp.set(COMMIT_ID_SNAPSHOT_PROP, commitState.currentCommitId().toString());
+        if (vtts != null) {
+          deltaOp.set(VTTS_SNAPSHOT_PROP, Long.toString(vtts.toInstant().toEpochMilli()));
+        }
+        addTxDataToSnapshot(deltaOp, txIdValidThrough, maxTxId);
+        dataFiles.forEach(deltaOp::addRows);
+        deleteFiles.forEach(deltaOp::addDeletes);
+        deltaOp.commit();
       }
+
+      Long snapshotId = latestSnapshot(table, branch.orElse(null)).snapshotId();
+
+      LOG.debug("Committed snapshot: snapshotId={}, tableIdentifier={}, commitId={}, vtts={}, " +
+                      "txIdValidThrough={}, maxTxId={}, dataFiles={}, deleteFiles={}, highestTxIds={}",
+              snapshotId, tableIdentifier, commitState.currentCommitId(), vtts,
+              txIdValidThrough, maxTxId, dataFiles.size(), deleteFiles.size(), tableHighestTxIds);
+
+      Event event =
+          new Event(
+              config.controlGroupId(),
+              new CommitToTable(
+                  commitState.currentCommitId(),
+                  TableReference.of(config.catalogName(), tableIdentifier),
+                  snapshotId,
+                  vtts));
+      send(event);
+
+      LOG.info(
+          "Commit complete to table {}, snapshot {}, commit ID {}, vtts {}",
+          tableIdentifier,
+          snapshotId,
+          commitState.currentCommitId(),
+          vtts);
     }
   }
   /**
@@ -381,7 +364,7 @@ public class Coordinator extends Channel implements AutoCloseable {
       operation.set(TXID_MAX_PROP, Long.toString(maxTxId));
       LOG.info("Added transaction data to snapshot: validThrough={}, max={}", txIdValidThrough, maxTxId);
     } else {
-      LOG.warn("No transaction data to add to snapshot");
+        LOG.warn("No transaction data to add to snapshot");
     }
   }
 
