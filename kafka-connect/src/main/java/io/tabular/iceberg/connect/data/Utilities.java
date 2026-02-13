@@ -311,27 +311,125 @@ public class Utilities {
     }
   }
 
+  /**
+   * Compares two transaction IDs accounting for wraparound.
+   * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
+   * We use 2^31 (2,147,483,648) as the threshold to detect wraparound correctly.
+   */
+  public static long compareTxIds(long currentTxId, long newTxId) {
+    long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
+
+    // If the difference is large, one has wrapped around
+    if (currentTxId - newTxId > wraparoundThreshold / 2) {
+      // newTxId wrapped around and is actually higher
+      return newTxId;
+    } else if (newTxId - currentTxId > wraparoundThreshold / 2) {
+      // currentTxId wrapped around and is actually higher
+      return currentTxId;
+    }
+
+    // No wraparound, return the simple max
+    return Math.max(currentTxId, newTxId);
+  }
+
+  /**
+   * Helper class to detect transaction ID wraparound and categorize values.
+   */
+  private static class TxIdWrapDetection {
+    private static final long WRAPAROUND_THRESHOLD = 4294967296L; // 2^32
+    private static final long HALF_THRESHOLD = WRAPAROUND_THRESHOLD / 2;
+
+    private final long minValue;
+    private final long maxValue;
+    private final boolean hasWraparound;
+    private final long minBeforeWrap;
+    private final long maxAfterWrap;
+
+    private TxIdWrapDetection(
+        long minValue, long maxValue, boolean hasWraparound, long minBeforeWrap, long maxAfterWrap) {
+      this.minValue = minValue;
+      this.maxValue = maxValue;
+      this.hasWraparound = hasWraparound;
+      this.minBeforeWrap = minBeforeWrap;
+      this.maxAfterWrap = maxAfterWrap;
+    }
+
+    static TxIdWrapDetection analyze(List<TopicPartitionTransaction> transactions) {
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      long minBefore = Long.MAX_VALUE;
+      long maxAfter = -1;
+
+      for (TopicPartitionTransaction tpt : transactions) {
+        long txId = tpt.txId();
+        min = Math.min(min, txId);
+        max = Math.max(max, txId);
+
+        if (txId > HALF_THRESHOLD) {
+          minBefore = Math.min(minBefore, txId);
+        } else {
+          maxAfter = Math.max(maxAfter, txId);
+        }
+      }
+
+      return new TxIdWrapDetection(min, max, (max - min) > HALF_THRESHOLD, minBefore, maxAfter);
+    }
+
+    long minValue() {
+      return minValue;
+    }
+
+    long maxValue() {
+      return maxValue;
+    }
+
+    boolean hasWraparound() {
+      return hasWraparound;
+    }
+
+    long minBeforeWrap() {
+      return minBeforeWrap;
+    }
+
+    long maxAfterWrap() {
+      return maxAfterWrap;
+    }
+  }
+
   public static Long calculateTxIdValidThrough(List<TopicPartitionTransaction> topicPartitionTransactions) {
     if (topicPartitionTransactions.isEmpty()) {
       LOG.warn("No transaction data to calculate txIdValidThrough");
       return 0L;
     }
 
-    // Find the minimum value in the lost, as it represents the highest transaction ID
-    // that is common across all partitions
-    long minValue = topicPartitionTransactions.stream().mapToLong(TopicPartitionTransaction::txId).min().orElse(0L);
-
-    // If only one partition, return minValue directly.
     if (topicPartitionTransactions.size() == 1) {
-      return minValue;
+      return topicPartitionTransactions.get(0).txId();
     }
 
-    // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID
-    return minValue > 1 ? minValue - 1 : 0;
+    TxIdWrapDetection detection = TxIdWrapDetection.analyze(topicPartitionTransactions);
+
+    if (detection.hasWraparound()) {
+      // Wraparound detected: return min of before-wrap values minus 1
+      return detection.minBeforeWrap() > 1 ? detection.minBeforeWrap() - 1 : 0;
+    }
+
+    // No wraparound
+    return detection.minValue() > 1 ? detection.minValue() - 1 : 0;
   }
 
   public static Long getMaxTxId(List<TopicPartitionTransaction> topicPartitionTransactions) {
-    return topicPartitionTransactions.stream().mapToLong(TopicPartitionTransaction::txId).max().orElse(0L);
+    if (topicPartitionTransactions.isEmpty()) {
+      return 0L;
+    }
+
+    TxIdWrapDetection detection = TxIdWrapDetection.analyze(topicPartitionTransactions);
+
+    if (detection.hasWraparound()) {
+      return detection.maxAfterWrap();
+    }
+
+    // No wraparound
+    return detection.maxValue();
   }
 
   private Utilities() {}
