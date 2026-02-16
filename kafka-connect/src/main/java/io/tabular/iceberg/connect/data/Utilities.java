@@ -332,68 +332,15 @@ public class Utilities {
     return Math.max(currentTxId, newTxId);
   }
 
-  /**
-   * Helper class to detect transaction ID wraparound and categorize values.
-   */
-  private static class TxIdWrapDetection {
-    private static final long WRAPAROUND_THRESHOLD = 4294967296L; // 2^32
-    private static final long HALF_THRESHOLD = WRAPAROUND_THRESHOLD / 2;
-
-    private final long minValue;
-    private final long maxValue;
-    private final boolean hasWraparound;
-    private final long minBeforeWrap;
-    private final long maxAfterWrap;
-
-    private TxIdWrapDetection(
-        long minValue, long maxValue, boolean hasWraparound, long minBeforeWrap, long maxAfterWrap) {
-      this.minValue = minValue;
-      this.maxValue = maxValue;
-      this.hasWraparound = hasWraparound;
-      this.minBeforeWrap = minBeforeWrap;
-      this.maxAfterWrap = maxAfterWrap;
+  private static long minTxId(long currentTxId, long newTxId) {
+    long wraparoundThreshold = 4294967296L;
+    if (currentTxId - newTxId > wraparoundThreshold / 2) {
+      return currentTxId;
     }
-
-    static TxIdWrapDetection analyze(List<TopicPartitionTransaction> transactions) {
-      long min = Long.MAX_VALUE;
-      long max = Long.MIN_VALUE;
-      long minBefore = Long.MAX_VALUE;
-      long maxAfter = -1;
-
-      for (TopicPartitionTransaction tpt : transactions) {
-        long txId = tpt.txId();
-        min = Math.min(min, txId);
-        max = Math.max(max, txId);
-
-        if (txId > HALF_THRESHOLD) {
-          minBefore = Math.min(minBefore, txId);
-        } else {
-          maxAfter = Math.max(maxAfter, txId);
-        }
-      }
-
-      return new TxIdWrapDetection(min, max, (max - min) > HALF_THRESHOLD, minBefore, maxAfter);
+    if (newTxId - currentTxId > wraparoundThreshold / 2) {
+      return newTxId;
     }
-
-    long minValue() {
-      return minValue;
-    }
-
-    long maxValue() {
-      return maxValue;
-    }
-
-    boolean hasWraparound() {
-      return hasWraparound;
-    }
-
-    long minBeforeWrap() {
-      return minBeforeWrap;
-    }
-
-    long maxAfterWrap() {
-      return maxAfterWrap;
-    }
+    return Math.min(currentTxId, newTxId);
   }
 
   public static Long calculateTxIdValidThrough(List<TopicPartitionTransaction> topicPartitionTransactions) {
@@ -406,15 +353,11 @@ public class Utilities {
       return topicPartitionTransactions.get(0).txId();
     }
 
-    TxIdWrapDetection detection = TxIdWrapDetection.analyze(topicPartitionTransactions);
-
-    if (detection.hasWraparound()) {
-      // Wraparound detected: return min of before-wrap values minus 1
-      return detection.minBeforeWrap() > 1 ? detection.minBeforeWrap() - 1 : 0;
+    long result = topicPartitionTransactions.get(0).txId();
+    for (int i = 1; i < topicPartitionTransactions.size(); i++) {
+      result = minTxId(result, topicPartitionTransactions.get(i).txId());
     }
-
-    // No wraparound
-    return detection.minValue() > 1 ? detection.minValue() - 1 : 0;
+    return result > 1 ? result - 1 : 0;
   }
 
   public static Long getMaxTxId(List<TopicPartitionTransaction> topicPartitionTransactions) {
@@ -422,14 +365,11 @@ public class Utilities {
       return 0L;
     }
 
-    TxIdWrapDetection detection = TxIdWrapDetection.analyze(topicPartitionTransactions);
-
-    if (detection.hasWraparound()) {
-      return detection.maxAfterWrap();
+    long result = topicPartitionTransactions.get(0).txId();
+    for (int i = 1; i < topicPartitionTransactions.size(); i++) {
+      result = compareTxIds(result, topicPartitionTransactions.get(i).txId());
     }
-
-    // No wraparound
-    return detection.maxValue();
+    return result;
   }
 
   private Utilities() {}
