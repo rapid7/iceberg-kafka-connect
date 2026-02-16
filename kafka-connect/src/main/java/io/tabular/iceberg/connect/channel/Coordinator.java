@@ -168,12 +168,15 @@ public class Coordinator extends Channel implements AutoCloseable {
   private long compareTxIds(long currentTxId, long newTxId) {
     long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
 
-    if ((newTxId > currentTxId && newTxId - currentTxId <= wraparoundThreshold / 2) ||
-            (newTxId < currentTxId && currentTxId - newTxId > wraparoundThreshold / 2)) {
-      // Wraparound detected: newTxId is actually higher after wrapping around
+    if (currentTxId - newTxId > wraparoundThreshold / 2) {
+      // newTxId wrapped around and is actually higher
       return newTxId;
+    } else if (newTxId - currentTxId > wraparoundThreshold / 2) {
+      // currentTxId wrapped around and is actually higher
+      return currentTxId;
     }
 
+    // No wraparound, return the simple max
     return Math.max(currentTxId, newTxId);
   }
 

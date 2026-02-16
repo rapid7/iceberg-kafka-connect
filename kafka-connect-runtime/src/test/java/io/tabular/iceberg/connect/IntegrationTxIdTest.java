@@ -157,12 +157,12 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
 
         Snapshot snapshot = awaitSnapshot();
 
-        // This test confirms the current behavior. The Coordinator's `compareTxIds` correctly
-        // handles wraparound for a single partition, so the highest txid for partition 0 is `5L`.
-        // However, the `Utilities` methods for calculating final `max` and `valid-through` do not
-        // account for wraparound when comparing values from *different* partitions.
-        // Expected max = simple max(5L, 4294967280L) = 4294967280L
-        // Expected valid-through = simple min(5L, 4294967280L) - 1 = 4L
-        assertSnapshotTxIdProps(snapshot, highTxId1, 4L, "full");
+        // Wraparound:
+        // - Partition 0: highTxId1 (4_294_967_290)
+        // - Partition 1: lowTxIdAfterWrap (5)
+        // - Partition 2: highTxId2 (4_294_967_280)
+        // The max should be the lowest value (after wraparound): 5
+        // The valid-through should be min of before-wrap values minus 1: 4_294_967_280 - 1
+        assertSnapshotTxIdProps(snapshot, lowTxIdAfterWrap, highTxId2 - 1, "full");
     }
 }
