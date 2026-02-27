@@ -311,27 +311,64 @@ public class Utilities {
     }
   }
 
+  /**
+   * Returns the most recent transaction ID accounting for wraparound.
+   * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
+   * We use 2^31 (2,147,483,648) as the threshold to detect wraparound correctly.
+   */
+  public static long mostRecentTxId(long currentTxId, long newTxId) {
+    long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
+
+    // If the difference is large, one has wrapped around
+    if (currentTxId - newTxId > wraparoundThreshold / 2) {
+      // newTxId wrapped around and is actually higher
+      return newTxId;
+    } else if (newTxId - currentTxId > wraparoundThreshold / 2) {
+      // currentTxId wrapped around and is actually higher
+      return currentTxId;
+    }
+
+    // No wraparound, return the simple max
+    return Math.max(currentTxId, newTxId);
+  }
+
+  private static long earliestTxId(long currentTxId, long newTxId) {
+    long wraparoundThreshold = 4294967296L;
+    if (currentTxId - newTxId > wraparoundThreshold / 2) {
+      return currentTxId;
+    }
+    if (newTxId - currentTxId > wraparoundThreshold / 2) {
+      return newTxId;
+    }
+    return Math.min(currentTxId, newTxId);
+  }
+
   public static Long calculateTxIdValidThrough(List<TopicPartitionTransaction> topicPartitionTransactions) {
     if (topicPartitionTransactions.isEmpty()) {
       LOG.warn("No transaction data to calculate txIdValidThrough");
       return 0L;
     }
 
-    // Find the minimum value in the lost, as it represents the highest transaction ID
-    // that is common across all partitions
-    long minValue = topicPartitionTransactions.stream().mapToLong(TopicPartitionTransaction::txId).min().orElse(0L);
-
-    // If only one partition, return minValue directly.
     if (topicPartitionTransactions.size() == 1) {
-      return minValue;
+      return topicPartitionTransactions.get(0).txId();
     }
 
-    // Subtract 1 from the minimum value to get the last guaranteed completed transaction ID
-    return minValue > 1 ? minValue - 1 : 0;
+    long result = topicPartitionTransactions.stream()
+        .mapToLong(TopicPartitionTransaction::txId)
+        .reduce(Utilities::earliestTxId)
+        .orElse(0L);
+    return result > 1 ? result - 1 : 0;
   }
 
   public static Long getMaxTxId(List<TopicPartitionTransaction> topicPartitionTransactions) {
-    return topicPartitionTransactions.stream().mapToLong(TopicPartitionTransaction::txId).max().orElse(0L);
+    if (topicPartitionTransactions.isEmpty()) {
+      return 0L;
+    }
+
+    return topicPartitionTransactions.stream()
+        .mapToLong(TopicPartitionTransaction::txId)
+        .reduce(Utilities::mostRecentTxId)
+        .orElse(0L);
   }
 
   private Utilities() {}

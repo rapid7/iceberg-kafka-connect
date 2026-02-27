@@ -157,12 +157,80 @@ public class IntegrationTxIdTest extends IntegrationTestBase {
 
         Snapshot snapshot = awaitSnapshot();
 
-        // This test confirms the current behavior. The Coordinator's `compareTxIds` correctly
-        // handles wraparound for a single partition, so the highest txid for partition 0 is `5L`.
-        // However, the `Utilities` methods for calculating final `max` and `valid-through` do not
-        // account for wraparound when comparing values from *different* partitions.
-        // Expected max = simple max(5L, 4294967280L) = 4294967280L
-        // Expected valid-through = simple min(5L, 4294967280L) - 1 = 4L
-        assertSnapshotTxIdProps(snapshot, highTxId1, 4L, "full");
+        // Wraparound:
+        // - Partition 0: highTxId1 (4_294_967_290)
+        // - Partition 1: lowTxIdAfterWrap (5)
+        // - Partition 2: highTxId2 (4_294_967_280)
+        // The max should be the lowest value (after wraparound): 5
+        // The valid-through should be min of before-wrap values minus 1: 4_294_967_280 - 1
+        assertSnapshotTxIdProps(snapshot, lowTxIdAfterWrap, highTxId2 - 1, "full");
+    }
+
+    @Test
+    public void testIcebergSinkTxIdAllJustBeforeWraparound() {
+        createTopic(testTopic, 3);
+        catalog.createTable(tableIdentifier, TEST_SCHEMA);
+        startConnector(true, 1);
+
+        long txId1 = 4_294_967_294L;
+        long txId2 = 4_294_967_295L;
+        long txId3 = 4_294_967_296L;
+
+        send(testTopic, 0, new TestEvent(1, "type1", new Date(), "p0d1", null, txId1), true);
+        send(testTopic, 1, new TestEvent(2, "type1", new Date(), "p1d1", null, txId2), true);
+        send(testTopic, 2, new TestEvent(3, "type1", new Date(), "p2d1", null, txId3), true);
+        flush();
+
+        Snapshot snapshot = awaitSnapshot();
+
+        // All values just before wraparound, no wraparound detected
+        // max = 4_294_967_296, valid-through = min - 1 = 4_294_967_293
+        assertSnapshotTxIdProps(snapshot, txId3, txId1 - 1, "full");
+    }
+
+    @Test
+    public void testIcebergSinkTxIdAllJustAfterWraparound() {
+        createTopic(testTopic, 3);
+        catalog.createTable(tableIdentifier, TEST_SCHEMA);
+        startConnector(true, 1);
+
+        long txId1 = 1L;
+        long txId2 = 2L;
+        long txId3 = 3L;
+
+        send(testTopic, 0, new TestEvent(1, "type1", new Date(), "p0d1", null, txId1), true);
+        send(testTopic, 1, new TestEvent(2, "type1", new Date(), "p1d1", null, txId2), true);
+        send(testTopic, 2, new TestEvent(3, "type1", new Date(), "p2d1", null, txId3), true);
+        flush();
+
+        Snapshot snapshot = awaitSnapshot();
+
+        // All values just after wraparound, no wraparound detected
+        // max = 3, valid-through = min - 1 = 0
+        assertSnapshotTxIdProps(snapshot, txId3, 0, "full");
+    }
+
+    @Test
+    public void testIcebergSinkTxIdWraparoundBoundary() {
+        createTopic(testTopic, 4);
+        catalog.createTable(tableIdentifier, TEST_SCHEMA);
+        startConnector(true, 1);
+
+        long txId1 = 4_294_967_295L;
+        long txId2 = 4_294_967_296L;
+        long txId3 = 1L;
+        long txId4 = 2L;
+
+        send(testTopic, 0, new TestEvent(1, "type1", new Date(), "p0d1", null, txId1), true);
+        send(testTopic, 1, new TestEvent(2, "type1", new Date(), "p1d1", null, txId2), true);
+        send(testTopic, 2, new TestEvent(3, "type1", new Date(), "p2d1", null, txId3), true);
+        send(testTopic, 3, new TestEvent(4, "type1", new Date(), "p3d1", null, txId4), true);
+        flush();
+
+        Snapshot snapshot = awaitSnapshot();
+
+        // Wraparound at the boundary: partitions span across the wrap point
+        // max = 2 (highest after wrap), valid-through = min of before-wrap - 1 = 4_294_967_294
+        assertSnapshotTxIdProps(snapshot, txId4, txId1 - 1, "full");
     }
 }
