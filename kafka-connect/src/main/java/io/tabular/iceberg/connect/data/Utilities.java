@@ -312,11 +312,11 @@ public class Utilities {
   }
 
   /**
-   * Compares two transaction IDs accounting for wraparound.
+   * Returns the most recent transaction ID accounting for wraparound.
    * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
    * We use 2^31 (2,147,483,648) as the threshold to detect wraparound correctly.
    */
-  public static long compareTxIds(long currentTxId, long newTxId) {
+  public static long mostRecentTxId(long currentTxId, long newTxId) {
     long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
 
     // If the difference is large, one has wrapped around
@@ -332,7 +332,7 @@ public class Utilities {
     return Math.max(currentTxId, newTxId);
   }
 
-  private static long minTxId(long currentTxId, long newTxId) {
+  private static long earliestTxId(long currentTxId, long newTxId) {
     long wraparoundThreshold = 4294967296L;
     if (currentTxId - newTxId > wraparoundThreshold / 2) {
       return currentTxId;
@@ -355,7 +355,7 @@ public class Utilities {
 
     long result = topicPartitionTransactions.get(0).txId();
     for (int i = 1; i < topicPartitionTransactions.size(); i++) {
-      result = minTxId(result, topicPartitionTransactions.get(i).txId());
+      result = earliestTxId(result, topicPartitionTransactions.get(i).txId());
     }
     return result > 1 ? result - 1 : 0;
   }
@@ -367,7 +367,7 @@ public class Utilities {
 
     long result = topicPartitionTransactions.get(0).txId();
     for (int i = 1; i < topicPartitionTransactions.size(); i++) {
-      result = compareTxIds(result, topicPartitionTransactions.get(i).txId());
+      result = mostRecentTxId(result, topicPartitionTransactions.get(i).txId());
     }
     return result;
   }

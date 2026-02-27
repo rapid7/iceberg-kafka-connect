@@ -148,38 +148,6 @@ public class Coordinator extends Channel implements AutoCloseable {
     return false;
   }
 
-  /**
-   * The rollover handling is managed by the compareTxIds method.
-   * This method compares the current transaction ID (currentTxId) with the new transaction ID (newTxId) and accounts for the rollover scenario.
-   * <p>
-   * Rollover Detection: The method checks if the newTxId is less than the currentTxId and if the difference between them is greater than half of Integer.MAX_VALUE.
-   * This condition indicates that the newTxId has rolled over and is actually higher than the currentTxId.
-   * Return Value: If the rollover condition is met, the method returns the newTxId as the higher value.
-   * Otherwise, it returns the maximum of currentTxId and newTxId.
-   * <p>
-   * PostgreSQL uses a 32-bit unsigned integer for transaction IDs, which means the wraparound occurs at 2^32 (4,294,967,296).
-   * We are using 2^31 (2,147,483,648) to detect the wraparound correctly.
-   * TODO (2471-02-04): MySQL transaction ID limit needs addressing, threshold it 2^63 -1 and there is no wraparound
-   *
-   * @param currentTxId current transaction ID
-   * @param newTxId    new transaction ID
-   * @return the higher of the two transaction IDs accounting for the rollover scenario
-   */
-  private long compareTxIds(long currentTxId, long newTxId) {
-    long wraparoundThreshold = 4294967296L; // 2^32 (PostgreSQL wraparound point)
-
-    if (currentTxId - newTxId > wraparoundThreshold / 2) {
-      // newTxId wrapped around and is actually higher
-      return newTxId;
-    } else if (newTxId - currentTxId > wraparoundThreshold / 2) {
-      // currentTxId wrapped around and is actually higher
-      return currentTxId;
-    }
-
-    // No wraparound, return the simple max
-    return Math.max(currentTxId, newTxId);
-  }
-
 
   private void commit(boolean partialCommit) {
     try {

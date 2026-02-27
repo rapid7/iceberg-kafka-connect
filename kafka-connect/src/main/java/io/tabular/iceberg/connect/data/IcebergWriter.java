@@ -76,7 +76,7 @@ public class IcebergWriter implements RecordWriter {
         Long txId = Utilities.extractTxIdFromRecordValue(record.value(), COL_TXID);
         if (txId != null) {
           TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
-          partitionMaxTxids.merge(tp, txId, Utilities::compareTxIds);
+          partitionMaxTxids.merge(tp, txId, Utilities::mostRecentTxId);
         }
         Record row = convertToRow(record);
         String cdcField = config.tablesCdcField();
