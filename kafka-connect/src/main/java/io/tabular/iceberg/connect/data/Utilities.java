@@ -353,10 +353,10 @@ public class Utilities {
       return topicPartitionTransactions.get(0).txId();
     }
 
-    long result = topicPartitionTransactions.get(0).txId();
-    for (int i = 1; i < topicPartitionTransactions.size(); i++) {
-      result = earliestTxId(result, topicPartitionTransactions.get(i).txId());
-    }
+    long result = topicPartitionTransactions.stream()
+        .mapToLong(TopicPartitionTransaction::txId)
+        .reduce(Utilities::earliestTxId)
+        .orElse(0L);
     return result > 1 ? result - 1 : 0;
   }
 
@@ -365,11 +365,10 @@ public class Utilities {
       return 0L;
     }
 
-    long result = topicPartitionTransactions.get(0).txId();
-    for (int i = 1; i < topicPartitionTransactions.size(); i++) {
-      result = mostRecentTxId(result, topicPartitionTransactions.get(i).txId());
-    }
-    return result;
+    return topicPartitionTransactions.stream()
+        .mapToLong(TopicPartitionTransaction::txId)
+        .reduce(Utilities::mostRecentTxId)
+        .orElse(0L);
   }
 
   private Utilities() {}
